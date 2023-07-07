@@ -17,21 +17,21 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
         char opcode = *instr;
         instr += 1;
         switch(opcode) {
-            case INSTR_MALLOC: { NOT_IMPLEMENTED } break;
-            case INSTR_MEM_SET: { NOT_IMPLEMENTED } break;
-            case INSTR_MEM_GET: { NOT_IMPLEMENTED } break;
-            case INSTR_ENTER: {
+            case MALLOC: { NOT_IMPLEMENTED } break;
+            case MEM_SET: { NOT_IMPLEMENTED } break;
+            case MEM_GET: { NOT_IMPLEMENTED } break;
+            case ENTER: {
                 uint16_t frame_size_bytes = *((uint16_t*) instr);
                 char* allocation = malloc(frame_size_bytes);
                 vector_push(&r->frames, &allocation);
                 instr += 2;
             } break;
-            case INSTR_EXIT: {
+            case EXIT: {
                 char* current = *((char**) vector_get(&r->frames, r->frames.size - 1));
                 free(current);
                 vector_pop(&r->frames);
             } break;
-            case INSTR_COPY: {
+            case COPY: {
                 char* src = *((char**) vector_get(&r->frames, r->frames.size - (1 + *((uint8_t*) instr))));
                 instr += 1;
                 src += *((uint16_t*) instr);
@@ -44,7 +44,7 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 instr += 1;
                 memcpy(dest, src, data_size);
             } break;
-            case INSTR_FUNCTION: {
+            case FUNCTION: {
                 Function f;
                 f.return_type_size = *((uint8_t*) instr);
                 instr += 1;
@@ -54,7 +54,7 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 instr += f.body_size_bytes;
                 vector_push(&m->functions, &f);
             } break;
-            case INSTR_CALL: {
+            case CALL: {
                 // keep track of this frame's return info
                 uint8_t pre_return_size = r->return_size;
                 uint16_t pre_return_var = r->return_var;
@@ -70,7 +70,7 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 r->return_size = pre_return_size;
                 r->return_var = pre_return_var;
             } break;
-            case INSTR_RETURN: {
+            case RETURN: {
                 uint16_t returned_val_var = *((uint16_t*) instr);
                 instr += 2;
                 char* current = *((char**) vector_get(&r->frames, r->frames.size - 1));
@@ -81,11 +81,11 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 }
                 free(current);
             } break;
-            case INSTR_IF: { NOT_IMPLEMENTED } break;
-            case INSTR_LOOP: { NOT_IMPLEMENTED } break;
-            case INSTR_BREAK: { NOT_IMPLEMENTED } break;
-            case INSTR_CONTINUE: { NOT_IMPLEMENTED } break;
-            case INSTR_PUT_UINT: {
+            case IF: { NOT_IMPLEMENTED } break;
+            case LOOP: { NOT_IMPLEMENTED } break;
+            case BREAK: { NOT_IMPLEMENTED } break;
+            case CONTINUE: { NOT_IMPLEMENTED } break;
+            case PUT_UINT: {
                 uint8_t val_size = *((uint8_t*) instr);
                 instr += 1;
                 char* current = *((char**) vector_get(&r->frames, r->frames.size - 1));
@@ -93,12 +93,12 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 instr += val_size;
                 instr += 2;
             } break;
-            case INSTR_ADD_UINT: { NOT_IMPLEMENTED } break;
-            case INSTR_SUBTRACT_UINT: { NOT_IMPLEMENTED } break;
-            case INSTR_MULTIPLY_UINT: { NOT_IMPLEMENTED } break;
-            case INSTR_DIVIDE_UINT: { NOT_IMPLEMENTED } break;
-            case INSTR_MODULO_UINT: { NOT_IMPLEMENTED } break;
-            case INSTR_PUT_SINT: {
+            case ADD_UINT: { NOT_IMPLEMENTED } break;
+            case SUBTRACT_UINT: { NOT_IMPLEMENTED } break;
+            case MULTIPLY_UINT: { NOT_IMPLEMENTED } break;
+            case DIVIDE_UINT: { NOT_IMPLEMENTED } break;
+            case MODULO_UINT: { NOT_IMPLEMENTED } break;
+            case PUT_SINT: {
                 uint8_t val_size = *((uint8_t*) instr);
                 instr += 1;
                 char* current = *((char**) vector_get(&r->frames, r->frames.size - 1));
@@ -106,8 +106,8 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 instr += val_size;
                 instr += 2;
             } break;
-            case INSTR_ADD_SINT: { NOT_IMPLEMENTED } break;
-            case INSTR_SUBTRACT_SINT: {
+            case ADD_SINT: { NOT_IMPLEMENTED } break;
+            case SUBTRACT_SINT: {
                 uint8_t val_size = *((uint8_t*) instr);
                 instr += 1;
                 char* current = *((char**) vector_get(&r->frames, r->frames.size - 1));
@@ -121,21 +121,21 @@ void execute_instructions(Runtime* r, Module* m, char* instr, size_t count) {
                 memcpy(current + *((uint16_t*) instr), &r_val, val_size);
                 instr += 2;
             } break;
-            case INSTR_MULTIPLY_SINT: { NOT_IMPLEMENTED } break;
-            case INSTR_DIVIDE_SINT: { NOT_IMPLEMENTED } break;
-            case INSTR_MODULO_SINT: { NOT_IMPLEMENTED } break;
-            case INSTR_PUT_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_ADD_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_SUBTRACT_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_MULTIPLY_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_DIVIDE_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_MODULO_F32: { NOT_IMPLEMENTED } break;
-            case INSTR_PUT_F64: { NOT_IMPLEMENTED } break;
-            case INSTR_ADD_F64: { NOT_IMPLEMENTED } break;
-            case INSTR_SUBTRACT_F64: { NOT_IMPLEMENTED } break;
-            case INSTR_MULTIPLY_F64: { NOT_IMPLEMENTED } break;
-            case INSTR_DIVIDE_F64: { NOT_IMPLEMENTED } break;
-            case INSTR_MODULO_F64: { NOT_IMPLEMENTED } break;
+            case MULTIPLY_SINT: { NOT_IMPLEMENTED } break;
+            case DIVIDE_SINT: { NOT_IMPLEMENTED } break;
+            case MODULO_SINT: { NOT_IMPLEMENTED } break;
+            case PUT_F32: { NOT_IMPLEMENTED } break;
+            case ADD_F32: { NOT_IMPLEMENTED } break;
+            case SUBTRACT_F32: { NOT_IMPLEMENTED } break;
+            case MULTIPLY_F32: { NOT_IMPLEMENTED } break;
+            case DIVIDE_F32: { NOT_IMPLEMENTED } break;
+            case MODULO_F32: { NOT_IMPLEMENTED } break;
+            case PUT_F64: { NOT_IMPLEMENTED } break;
+            case ADD_F64: { NOT_IMPLEMENTED } break;
+            case SUBTRACT_F64: { NOT_IMPLEMENTED } break;
+            case MULTIPLY_F64: { NOT_IMPLEMENTED } break;
+            case DIVIDE_F64: { NOT_IMPLEMENTED } break;
+            case MODULO_F64: { NOT_IMPLEMENTED } break;
             default: {
                 printf("Byte 0x%02x in module '%s' is not a valid opcode!\n", opcode, m->file);
                 exit(1);
