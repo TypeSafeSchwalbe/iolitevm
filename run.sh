@@ -1,3 +1,5 @@
 
+clear
+
 mkdir out > /dev/null 2>&1
-gcc src/*.c -o out/iolitevm && out/iolitevm
+gcc -Wextra src/*.c -o out/iolitevm -lm && out/iolitevm
