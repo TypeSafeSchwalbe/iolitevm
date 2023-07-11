@@ -52,6 +52,7 @@ void gc_mark_reachable(IoliteAllocation* a) {
     for(size_t contained_value_index = 0; contained_value_index < a->size; contained_value_index += 1) {
         IoliteValue* v = &a->values[contained_value_index];
         if(v->type != REFERENCE) { continue; }
+        if((v->value.ref->gc_flags & GC_REACHABLE) > 0) { continue; }
         gc_mark_reachable(v->value.ref);
     }
 }
