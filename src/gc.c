@@ -24,7 +24,7 @@ IoliteAllocation* gc_allocate(GC* gc, uint64_t size) {
     a.values = malloc(sizeof(IoliteValue) * size);
     a.gc_flags = GC_REACHABLE | GC_USED;
     a.stack_reference_count = 1;
-    printf("[GC debug] created allocation of %d elements at address %p\n", size, a.values);
+    //printf("[GC debug] created allocation of %d elements at address %p\n", size, a.values);
     // set the types of each allocated value to UNIT
     // this is to make sure that the (currently garbage) data doesn't get interpreted as a reference,
     // which the runtime reference counting would try to change the reference count of
@@ -77,7 +77,6 @@ void gc_run(GC* gc) {
         IoliteAllocation* a = vector_get(&gc->allocations, allocation_index);
         if((a->gc_flags & GC_REACHABLE) > 0) { continue; }
         SET_FLAG_FALSE(a->gc_flags, GC_USED);
-        printf("[GC debug] freed allocation of size %d at address %p\n", a->size, a->values);
         free(a->values);
     }
 }

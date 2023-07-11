@@ -12,11 +12,11 @@ typedef struct {
 
 
 typedef uint16_t VarIdx;
-typedef uint16_t InstrC;
+typedef uint64_t InstrC;
 
 // Bytecode also needs to include type info and public / private info
 
-typedef struct { MString name; uint16_t argc; VarIdx varc; struct Instruction* body; InstrC body_length; } Instruction_Function;
+typedef struct { MString name; uint16_t argc; VarIdx varc; InstrC instruction_index; struct Instruction* body; InstrC body_length; } Instruction_Function;
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_Call;
 typedef struct { MString name; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ExternalCall;
 typedef struct { VarIdx value; } Instruction_Return;
@@ -73,6 +73,9 @@ typedef struct { VarIdx ref; uint64_t index; VarIdx dest; } Instruction_RefGetFi
 typedef struct { VarIdx ref; VarIdx index; VarIdx value; } Instruction_RefSetDynamic;
 typedef struct { VarIdx ref; uint64_t index; VarIdx value; } Instruction_RefSetFixed;
 
+typedef struct { InstrC dest; } Instruction_Jump;
+typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instruction_ConditionalJump;
+
 typedef enum {
     // part of binaries
     FUNCTION, CALL, EXTERNAL_CALL, RETURN, RETURN_NOTHING,
@@ -82,9 +85,10 @@ typedef enum {
     EQUALS, NOT_EQUALS, LESS_THAN, GREATER_THAN, LESS_THAN_EQUALS, GREATER_THAN_EQUALS, NOT,
     ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, NEGATE,
     CONVERT_U8, CONVERT_U16, CONVERT_U32, CONVERT_U64, CONVERT_S8, CONVERT_S16, CONVERT_S32, CONVERT_S64, CONVERT_F32, CONVERT_F64,
-    // not part of binariess
+    // not part of binaries
     RESOLVED_CALL, RESOLVED_EXTERNAL_CALL,
-    MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED
+    MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED,
+    JUMP, CONDITIONAL_JUMP
 } InstructionType;
 
 typedef union {
@@ -144,6 +148,9 @@ typedef union {
     Instruction_RefGetFixed ref_get_fixed_data;
     Instruction_RefSetDynamic ref_set_dynamic_data;
     Instruction_RefSetFixed ref_set_fixed_data;
+
+    Instruction_Jump jump_data;
+    Instruction_ConditionalJump conditional_jump_data;
 } InstructionData;
 
 typedef struct Instruction {
