@@ -138,7 +138,7 @@ void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, Instr
     }\
 }
 
-ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
+ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
     switch(i->type) {
         case FUNCTION: /* nothing to do, functions have already been loaded */ break; 
         case CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
@@ -173,15 +173,15 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
                 case UNIT: break;
             }
             if(cond_true) {
-                return execute_instructions(r, data->if_body, data->if_body_length);
+                return execute_instructions(r, gc, data->if_body, data->if_body_length);
             } else {
-                return execute_instructions(r, data->else_body, data->else_body_length);
+                return execute_instructions(r, gc, data->else_body, data->else_body_length);
             }
         } break;
         case LOOP: {
             Instruction_Loop* data = &i->data.loop_data;
             for(;;) {
-                ExecutionSignal sig = execute_instructions(r, data->body, data->body_length);
+                ExecutionSignal sig = execute_instructions(r, gc, data->body, data->body_length);
                 if(sig == NEXT_INSTRUCTION || sig == CONTINUE_LOOP) continue;
                 if(sig == BREAK_LOOP) break;
                 return RETURN_FUNCTION;
@@ -197,7 +197,12 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
         case COPY: {
             Instruction_Copy* data = &i->data.copy_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = current_frame->values[data->src];
+            if(data->src == data->dest) { break; }
+            IoliteValue* src = &current_frame->values[data->src];
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(src->type == REFERENCE) { src->value.ref->stack_reference_count += 1; }
+            if(dest->type == REFERENCE) { src->value.ref->stack_reference_count -= 1; }
+            *dest = *src;
         } break;
 
         case PUT_U8: {
@@ -268,6 +273,7 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
                 case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 == b->value.s64 } }; break;
                 case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = a->value.f32 == b->value.f32 } }; break;
                 case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = a->value.f64 == b->value.f64 } }; break;
+                case REFERENCE: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.ref == b->value.ref } }; break;
                 case UNIT: break;
             }
         } break;
@@ -288,6 +294,7 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
                 case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 != b->value.s64 } }; break;
                 case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = a->value.f32 != b->value.f32 } }; break;
                 case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = a->value.f64 != b->value.f64 } }; break;
+                case REFERENCE: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.ref != b->value.ref } }; break;
                 case UNIT: break;
             }
         } break;
@@ -511,14 +518,27 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
             Frame call_frame;
             call_frame.size = data->function->argc + data->function->varc;
             call_frame.values = malloc(sizeof(IoliteValue) * call_frame.size);
-            for(VarIdx arg = 0; arg < data->function->argc; arg += 1) {
-                call_frame.values[arg] = current_frame->values[data->argv[arg]];
+            for(VarIdx var_index = 0; var_index < call_frame.size; var_index += 1) {
+                call_frame.values[var_index].type = UNIT;
+            }
+            for(VarIdx arg_index = 0; arg_index < data->function->argc; arg_index += 1) {
+                IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
+                if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
+                call_frame.values[arg_index] = *arg;
             }
             vector_push(&r->frames, &call_frame);
-            execute_instructions(r, data->function->body, data->function->body_length);
+            execute_instructions(r, gc, data->function->body, data->function->body_length);
             vector_pop(&r->frames);
             if(r->returned_val != 0) {
-                current_frame->values[data->returned] = call_frame.values[r->returned_val_var];
+                IoliteValue* returned_val = &call_frame.values[r->returned_val_var];
+                IoliteValue* returned_dest = &current_frame->values[data->returned];
+                if(returned_val->type == REFERENCE) { returned_val->value.ref->stack_reference_count += 1; }
+                if(returned_dest->type == REFERENCE) { returned_dest->value.ref->stack_reference_count -= 1; }
+                *returned_dest = *returned_val;
+            }
+            for(VarIdx var_index = 0; var_index < call_frame.size; var_index += 1) {
+                IoliteValue* var_val = &call_frame.values[var_index];
+                if(var_val->type == REFERENCE) { var_val->value.ref->stack_reference_count -= 1; }
             }
             free(call_frame.values);
         } break;
@@ -532,16 +552,85 @@ ExecutionSignal execute_instruction(Runtime* r, Instruction* i) {
             IoliteValue return_val = ((IoliteExternalFunction) data->function)(argv);
             free(argv);
             if(return_val.type != UNIT) {
-                current_frame->values[data->returned] = return_val;
+                IoliteValue* returned_dest = &current_frame->values[data->returned];
+                if(return_val.type == REFERENCE) { returned_dest->value.ref->stack_reference_count += 1; }
+                if(returned_dest->type == REFERENCE) { returned_dest->value.ref->stack_reference_count -= 1; }
+                *returned_dest = return_val;
             }
+        } break;
+
+        case MALLOC_DYNAMIC: case MALLOC_FIXED: {
+            uint64_t size;
+            VarIdx dest;
+            Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
+            if(i->type == MALLOC_DYNAMIC) {
+                Instruction_MallocDynamic* data = &i->data.malloc_dynamic_data;
+                size = current_frame->values[data->size].value.u64;
+                dest = data->dest;
+            } else {
+                Instruction_MallocFixed* data = &i->data.malloc_fixed_data;
+                size = data->size;
+                dest = data->dest;
+            }
+            IoliteAllocation* allocation = gc_allocate(gc, size);
+            IoliteValue value = { .type = REFERENCE, .value = { .ref = allocation } };
+            IoliteValue* dest_ptr = &current_frame->values[dest];
+            if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
+            *dest_ptr = value;
+        } break;
+        case REF_GET_DYNAMIC: case REF_GET_FIXED: {
+            VarIdx ref;
+            uint64_t index;
+            VarIdx dest;
+            Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
+            if(i->type == REF_GET_DYNAMIC) {
+                Instruction_RefGetDynamic* data = &i->data.ref_get_dynamic_data;
+                ref = data->ref;
+                index = current_frame->values[data->index].value.u64;
+                dest = data->dest;
+            } else {
+                Instruction_RefGetFixed* data = &i->data.ref_get_fixed_data;
+                ref = data->ref;
+                index = data->index;
+                dest = data->dest;
+            }
+            IoliteAllocation* allocation = current_frame->values[ref].value.ref;
+            IoliteValue* value = &allocation->values[index];
+            IoliteValue* dest_ptr = &current_frame->values[dest];
+            if(value->type == REFERENCE) { value->value.ref->stack_reference_count += 1; }
+            if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
+            *dest_ptr = *value;
+        } break;
+        case REF_SET_DYNAMIC: case REF_SET_FIXED: {
+            VarIdx ref;
+            uint64_t index;
+            VarIdx value;
+            Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
+            if(i->type == REF_SET_DYNAMIC) {
+                Instruction_RefSetDynamic* data = &i->data.ref_set_dynamic_data;
+                ref = data->ref;
+                index = current_frame->values[data->index].value.u64;
+                value = data->value;
+            } else {
+                Instruction_RefSetFixed* data = &i->data.ref_set_fixed_data;
+                ref = data->ref;
+                index = data->index;
+                value = data->value;
+            }
+            IoliteAllocation* allocation = current_frame->values[ref].value.ref;
+            IoliteValue* value_ptr = &current_frame->values[value];
+            IoliteValue* dest = &allocation->values[index];
+            if(value_ptr->type == REFERENCE) { value_ptr->value.ref->stack_reference_count += 1; }
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = *value_ptr;
         } break;
     }
     return NEXT_INSTRUCTION;
 }
 
-ExecutionSignal execute_instructions(Runtime* r, Instruction* instructions, InstrC instruction_count) {
+ExecutionSignal execute_instructions(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_count) {
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
-        ExecutionSignal sig = execute_instruction(r, &instructions[instruction_index]);
+        ExecutionSignal sig = execute_instruction(r, gc, &instructions[instruction_index]);
         switch(sig) {
             case NEXT_INSTRUCTION: continue;
             default: return sig;

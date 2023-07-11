@@ -66,6 +66,13 @@ typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertF64;
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
 typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
 
+typedef struct { VarIdx size; VarIdx dest; } Instruction_MallocDynamic;
+typedef struct { uint64_t size; VarIdx dest; } Instruction_MallocFixed;
+typedef struct { VarIdx ref; VarIdx index; VarIdx dest; } Instruction_RefGetDynamic;
+typedef struct { VarIdx ref; uint64_t index; VarIdx dest; } Instruction_RefGetFixed;
+typedef struct { VarIdx ref; VarIdx index; VarIdx value; } Instruction_RefSetDynamic;
+typedef struct { VarIdx ref; uint64_t index; VarIdx value; } Instruction_RefSetFixed;
+
 typedef enum {
     // part of binaries
     FUNCTION, CALL, EXTERNAL_CALL, RETURN, RETURN_NOTHING,
@@ -76,7 +83,8 @@ typedef enum {
     ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, NEGATE,
     CONVERT_U8, CONVERT_U16, CONVERT_U32, CONVERT_U64, CONVERT_S8, CONVERT_S16, CONVERT_S32, CONVERT_S64, CONVERT_F32, CONVERT_F64,
     // not part of binariess
-    RESOLVED_CALL, RESOLVED_EXTERNAL_CALL
+    RESOLVED_CALL, RESOLVED_EXTERNAL_CALL,
+    MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED
 } InstructionType;
 
 typedef union {
@@ -129,6 +137,13 @@ typedef union {
 
     Instruction_ResolvedCall resolved_call_data;
     Instruction_ResolvedExternalCall resolved_external_call_data;
+
+    Instruction_MallocDynamic malloc_dynamic_data;
+    Instruction_MallocFixed malloc_fixed_data;
+    Instruction_RefGetDynamic ref_get_dynamic_data;
+    Instruction_RefGetFixed ref_get_fixed_data;
+    Instruction_RefSetDynamic ref_set_dynamic_data;
+    Instruction_RefSetFixed ref_set_fixed_data;
 } InstructionData;
 
 typedef struct Instruction {

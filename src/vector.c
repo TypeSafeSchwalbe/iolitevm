@@ -14,11 +14,11 @@ Vector create_vector(size_t e_size) {
     return a;
 }
 
-void* vector_get(Vector* a, size_t index) {
+inline void* vector_get(Vector* a, size_t index) {
     return (void*) (a->data + index * a->e_size);
 }
 
-void vector_set(Vector* a, size_t index, void* value) {
+inline void vector_set(Vector* a, size_t index, void* value) {
     memcpy(a->data + index * a->e_size, value, a->e_size);
 }
 
@@ -32,7 +32,7 @@ void vector_push(Vector* a, void* value) {
     a->size += 1;
 }
 
-void vector_pop(Vector* a) {
+inline void vector_pop(Vector* a) {
     a->size -= 1;
 }
 
