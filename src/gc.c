@@ -69,7 +69,7 @@ void gc_run(GC* gc) {
     for(size_t allocation_index = 0; allocation_index < allocation_count; allocation_index += 1) {
         IoliteAllocation* a = vector_get(&gc->allocations, allocation_index);
         if(a->gc_flags & GC_USED <= 0) { continue; }
-        if(a->stack_reference_count > 0) { continue; }
+        if(a->stack_reference_count <= 0) { continue; }
         gc_mark_reachable(a);
     }
     // free all used allocations that aren't marked as reachable and mark them as unused

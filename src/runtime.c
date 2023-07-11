@@ -208,52 +208,72 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
         case PUT_U8: {
             Instruction_PutU8* data = &i->data.put_u8_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U8, .value = { .u8 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U8, .value = { .u8 = data->value } };
         } break;
         case PUT_U16: {
             Instruction_PutU16* data = &i->data.put_u16_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U16, .value = { .u16 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U16, .value = { .u16 = data->value } };
         } break;
         case PUT_U32: {
             Instruction_PutU32* data = &i->data.put_u32_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U32, .value = { .u32 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U32, .value = { .u32 = data->value } };
         } break;
         case PUT_U64: {
             Instruction_PutU64* data = &i->data.put_u64_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U64, .value = { .u64 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U64, .value = { .u64 = data->value } };
         } break;
         case PUT_S8: {
             Instruction_PutS8* data = &i->data.put_s8_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S8, .value = { .s8 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S8, .value = { .s8 = data->value } };
         } break;
         case PUT_S16: {
             Instruction_PutS16* data = &i->data.put_s16_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S16, .value = { .s16 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S16, .value = { .s16 = data->value } };
         } break;
         case PUT_S32: {
             Instruction_PutS32* data = &i->data.put_s32_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S32, .value = { .s32 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S32, .value = { .s32 = data->value } };
         } break;
         case PUT_S64: {
             Instruction_PutS64* data = &i->data.put_s64_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S64, .value = { .s64 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S64, .value = { .s64 = data->value } };
         } break;
         case PUT_F32: {
             Instruction_PutF32* data = &i->data.put_f32_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = F32, .value = { .f32 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = F32, .value = { .f32 = data->value } };
         } break;
         case PUT_F64: {
             Instruction_PutF64* data = &i->data.put_f64_data;
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
-            current_frame->values[data->dest] = (IoliteValue) { .type = F64, .value = { .f64 = data->value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = F64, .value = { .f64 = data->value } };
         } break;
 
         case EQUALS: {
@@ -262,6 +282,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             switch(a->type) {
                 case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 == b->value.u8 } }; break;
                 case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 == b->value.u16 } }; break;
@@ -283,6 +304,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             switch(a->type) {
                 case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 != b->value.u8 } }; break;
                 case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 != b->value.u16 } }; break;
@@ -304,6 +326,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(<);
         } break;
         case GREATER_THAN: {
@@ -312,6 +335,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(>);
         } break;
         case LESS_THAN_EQUALS: {
@@ -320,6 +344,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(<=);
         } break;
         case GREATER_THAN_EQUALS: {
@@ -328,6 +353,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(>=);
         } break;
         case NOT: {
@@ -335,6 +361,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
             IoliteValue* x = &current_frame->values[data->x];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             switch(x->type) {
                 case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = !x->value.u8 } }; break;
                 case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = !x->value.u16 } }; break;
@@ -359,6 +386,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(+);
         } break;
         case SUBTRACT: {
@@ -367,6 +395,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(-);
         } break;
         case MULTIPLY: {
@@ -375,6 +404,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(*);
         } break;
         case DIVIDE: {
@@ -383,6 +413,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             BI_OPERATION(/);
         } break;
         case MODULO: {
@@ -391,6 +422,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* a = &current_frame->values[data->a];
             IoliteValue* b = &current_frame->values[data->b];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             switch(a->type) {
                 case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 % b->value.u8 } }; break;
                 case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 % b->value.u16 } }; break;
@@ -413,6 +445,7 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             Frame* current_frame = vector_get(&r->frames, r->frames.size - 1);
             IoliteValue* x = &current_frame->values[data->x];
             IoliteValue* result = &current_frame->values[data->dest];
+            if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
             switch(x->type) {
                 case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = -x->value.u8 } }; break;
                 case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = -x->value.u16 } }; break;
@@ -437,7 +470,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             uint8_t value;
             CONVERSION_TO(uint8_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U8, .value = { .u8 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U8, .value = { .u8 = value } };
         } break;
         case CONVERT_U16: {
             Instruction_ConvertU16* data = &i->data.convert_u16_data;
@@ -445,7 +480,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             uint16_t value;
             CONVERSION_TO(uint16_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U16, .value = { .u16 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U16, .value = { .u16 = value } };
         } break;
         case CONVERT_U32: {
             Instruction_ConvertU32* data = &i->data.convert_u32_data;
@@ -453,7 +490,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             uint32_t value;
             CONVERSION_TO(uint32_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U32, .value = { .u32 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U32, .value = { .u32 = value } };
         } break;
         case CONVERT_U64: {
             Instruction_ConvertU64* data = &i->data.convert_u64_data;
@@ -461,7 +500,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             uint64_t value;
             CONVERSION_TO(uint64_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = U64, .value = { .u64 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = U64, .value = { .u64 = value } };
         } break;
         case CONVERT_S8: {
             Instruction_ConvertS8* data = &i->data.convert_s8_data;
@@ -469,7 +510,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             int8_t value;
             CONVERSION_TO(int8_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S8, .value = { .s8 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S8, .value = { .s8 = value } };
         } break;
         case CONVERT_S16: {
             Instruction_ConvertS16* data = &i->data.convert_s16_data;
@@ -477,7 +520,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             int16_t value;
             CONVERSION_TO(int16_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S16, .value = { .s16 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S16, .value = { .s16 = value } };
         } break;
         case CONVERT_S32: {
             Instruction_ConvertS32* data = &i->data.convert_s32_data;
@@ -485,7 +530,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             int32_t value;
             CONVERSION_TO(int32_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S32, .value = { .s32 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S32, .value = { .s32 = value } };
         } break;
         case CONVERT_S64: {
             Instruction_ConvertS64* data = &i->data.convert_s64_data;
@@ -493,7 +540,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             int64_t value;
             CONVERSION_TO(int64_t);
-            current_frame->values[data->dest] = (IoliteValue) { .type = S64, .value = { .s64 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = S64, .value = { .s64 = value } };
         } break;
         case CONVERT_F32: {
             Instruction_ConvertF32* data = &i->data.convert_f32_data;
@@ -501,7 +550,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             float value;
             CONVERSION_TO(float);
-            current_frame->values[data->dest] = (IoliteValue) { .type = F32, .value = { .f32 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = F32, .value = { .f32 = value } };
         } break;
         case CONVERT_F64: {
             Instruction_ConvertF64* data = &i->data.convert_f64_data;
@@ -509,7 +560,9 @@ ExecutionSignal execute_instruction(Runtime* r, GC* gc, Instruction* i) {
             IoliteValue* x = &current_frame->values[data->x];
             double value;
             CONVERSION_TO(double);
-            current_frame->values[data->dest] = (IoliteValue) { .type = F64, .value = { .f64 = value } };
+            IoliteValue* dest = &current_frame->values[data->dest];
+            if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+            *dest = (IoliteValue) { .type = F64, .value = { .f64 = value } };
         } break;
 
         case RESOLVED_CALL: {
