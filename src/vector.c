@@ -36,5 +36,6 @@ inline void vector_pop(Vector* a) {
     a->size -= 1;
 }
 
-
-
+void vector_cleanup(Vector* v) {
+    free(v->data);
+}

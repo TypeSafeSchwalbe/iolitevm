@@ -7,12 +7,8 @@
 #include "dlibs.h"
 #include "module.h"
 #include "gc.h"
+#include "threads.h"
 
-
-typedef struct {
-    IoliteValue* values;
-    VarIdx size;
-} Frame;
 
 typedef struct {
     Vector functions;
@@ -27,4 +23,6 @@ void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, Instr
 
 void flatten_combine(Module* modules, size_t module_count, Instruction** instructions, InstrC* instruction_count);
 
-void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_count);
+void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index);
+
+void runtime_cleanup(Runtime* r);

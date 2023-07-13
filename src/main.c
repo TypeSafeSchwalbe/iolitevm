@@ -19,7 +19,7 @@ int main() {
     MString println_f32_s = (MString) { .length = 11, .data = "println_f32" };
     Module test;
     test.body = (Instruction[]) {
-        { .type = FUNCTION, .data = { .function_data = { .name = main_s, .argc = 0, .varc = 6, .body = (Instruction[]) {
+        { .type = FUNCTION, .data = { .function_data = { .name = main_s, .argc = 0, .varc = 7, .body = (Instruction[]) {
             { .type = PUT_U64, .data = { .put_u64_data = { .value = 0, .dest = 0 } } },
             { .type = PUT_U64, .data = { .put_u64_data = { .value = 1, .dest = 1 } } },
             { .type = PUT_U64, .data = { .put_u64_data = { .value = 100000000, .dest = 2 } } },
@@ -31,12 +31,18 @@ int main() {
                 { .type = ADD, .data = { .multiply_data = { .a = 0, .b = 1, .dest = 4 } } },
                 { .type = COPY, .data = { .copy_data = { .src = 4, .dest = 0 } } },
             }, .body_length = 4 } } },
+            { .type = PUT_F32, .data = { .put_f32_data = { .value = 6.28, .dest = 6 } } },
+            { .type = EXTERNAL_CALL, .data = { .external_call_data = { .name = println_f32_s, .argc = 1, .argv = (VarIdx[]) { 6 }, .returned = 6 } } },
             { .type = RETURN_NOTHING }
-        }, .body_length = 5 } } },
+        }, .body_length = 7 } } },
 
-        { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } }
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 2 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 2 } } }
     }; 
-    test.body_length = 2;
+    test.body_length = 6;
 
     // create a runtime, discover all symbols and resolve them
     Runtime r = create_runtime();
@@ -49,14 +55,24 @@ int main() {
     flatten_combine((Module[]) { test }, 1, &instructions, &instruction_count);
     // create a garbage collector
     GC gc = create_gc();
+    // create a thread pool
+    ThreadPool tp = create_thread_pool();
 
     // execute the module
-    execute(&r, &gc, instructions, instruction_count);
+    IoliteAllocation* base_frame = gc_allocate(&gc, 3);
+    execute(&r, &gc, &tp, instructions, instruction_count, base_frame, NULL, 0);
+
+    // wait for all threads to finish (and clean the thread pool up)
+    threadpool_cleanup(&tp);
 
     // let the garbage collector run
     gc_run(&gc);
 
+    // cleanup
     dlibs_free(&dlibs);
+    runtime_cleanup(&r);
+    free(instructions);
+    gc_cleanup(&gc);
     return 0;
 }
 

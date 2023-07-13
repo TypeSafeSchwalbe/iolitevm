@@ -14,10 +14,12 @@ typedef struct {
 
 Vector create_vector(size_t e_size);
 
-void* vector_get(Vector* a, size_t index);
+void* vector_get(Vector* v, size_t index);
 
-void vector_set(Vector* a, size_t index, void* value);
+void vector_set(Vector* v, size_t index, void* value);
 
-void vector_push(Vector* a, void* value);
+void vector_push(Vector* v, void* value);
 
-void vector_pop(Vector* a);
+void vector_pop(Vector* v);
+
+void vector_cleanup(Vector* v);

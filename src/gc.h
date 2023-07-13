@@ -16,3 +16,5 @@ GC create_gc();
 IoliteAllocation* gc_allocate(GC* gc, uint64_t size);
 
 void gc_run(GC* gc);
+
+void gc_cleanup(GC* gc);

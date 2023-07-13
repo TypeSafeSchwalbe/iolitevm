@@ -24,7 +24,7 @@ IoliteAllocation* gc_allocate(GC* gc, uint64_t size) {
     a.values = malloc(sizeof(IoliteValue) * size);
     a.gc_flags = GC_REACHABLE | GC_USED;
     a.stack_reference_count = 1;
-    //printf("[GC debug] created allocation of %d elements at address %p\n", size, a.values);
+    printf("[GC debug] created allocation of %d elements at address %p\n", size, a.values);
     // set the types of each allocated value to UNIT
     // this is to make sure that the (currently garbage) data doesn't get interpreted as a reference,
     // which the runtime reference counting would try to change the reference count of
@@ -52,6 +52,7 @@ void gc_mark_reachable(IoliteAllocation* a) {
     for(size_t contained_value_index = 0; contained_value_index < a->size; contained_value_index += 1) {
         IoliteValue* v = &a->values[contained_value_index];
         if(v->type != REFERENCE) { continue; }
+        if(v->value.ref == NULL) { continue; }
         if((v->value.ref->gc_flags & GC_REACHABLE) > 0) { continue; }
         gc_mark_reachable(v->value.ref);
     }
@@ -68,8 +69,8 @@ void gc_run(GC* gc) {
     // mark all used allocations with a stack reference count of over 0 as reachable
     for(size_t allocation_index = 0; allocation_index < allocation_count; allocation_index += 1) {
         IoliteAllocation* a = vector_get(&gc->allocations, allocation_index);
-        if(a->gc_flags & GC_USED <= 0) { continue; }
-        if(a->stack_reference_count <= 0) { continue; }
+        if((a->gc_flags & GC_USED) <= 0) { continue; }
+        if((a->stack_reference_count) <= 0) { continue; }
         gc_mark_reachable(a);
     }
     // free all used allocations that aren't marked as reachable and mark them as unused
@@ -77,6 +78,18 @@ void gc_run(GC* gc) {
         IoliteAllocation* a = vector_get(&gc->allocations, allocation_index);
         if((a->gc_flags & GC_REACHABLE) > 0) { continue; }
         SET_FLAG_FALSE(a->gc_flags, GC_USED);
+        printf("[GC debug] freeing allocation of %d elements at address %p (GC run)\n", a->size, a->values);
         free(a->values);
     }
+}
+
+void gc_cleanup(GC* gc) {
+    for(size_t allocation_index = 0; allocation_index < gc->allocations.size; allocation_index += 1) {
+        IoliteAllocation* a = vector_get(&gc->allocations, allocation_index);
+        if((a->gc_flags & GC_USED) <= 0) { continue; }
+        printf("[GC debug] freeing allocation of %d elements at address %p (cleanup)\n", a->size, a->values);
+        free(a->values);
+    }
+    vector_cleanup(&gc->allocations);
+    vector_cleanup(&gc->unused);
 }

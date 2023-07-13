@@ -28,31 +28,51 @@ void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, Instr
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
-            case CALL: {
-                Instruction_Call* data = &instruction->data.call_data;
+            case CALL: case ASYNC_CALL: {
+                MString* name;
+                if(instruction->type == CALL) {
+                    Instruction_Call* data = &instruction->data.call_data;
+                    name = &data->name;
+                } else {
+                    Instruction_AsyncCall* data = &instruction->data.async_call_data;
+                    name = &data->name;
+                }
                 // try to find the function in all loaded module functions
                 uint8_t found = 0;
                 for(size_t function_index = 0; function_index < r->functions.size; function_index += 1) {
                     Instruction_Function** function = vector_get(&r->functions, function_index);
-                    if((*function)->name.length == data->name.length
-                    && memcmp((*function)->name.data, data->name.data, data->name.length) == 0) {
-                        *instruction = (Instruction) {
-                            .type = RESOLVED_CALL,
-                            .data = (InstructionData) { .resolved_call_data = (Instruction_ResolvedCall) {
-                                .function = *function,
-                                .argv = data->argv,
-                                .returned = data->returned
-                            } }
-                        };
+                    if((*function)->name.length == name->length
+                    && memcmp((*function)->name.data, name->data, name->length) == 0) {
+                        if(instruction->type == CALL) {
+                            Instruction_Call* data = &instruction->data.call_data;
+                            *instruction = (Instruction) {
+                                .type = RESOLVED_CALL,
+                                .data = (InstructionData) { .resolved_call_data = (Instruction_ResolvedCall) {
+                                    .function = *function,
+                                    .argv = data->argv,
+                                    .returned = data->returned
+                                } }
+                            };
+                        } else {
+                            Instruction_AsyncCall* data = &instruction->data.async_call_data;
+                            *instruction = (Instruction) {
+                                .type = RESOLVED_ASYNC_CALL,
+                                .data = (InstructionData) { .resolved_async_call_data = (Instruction_ResolvedAsyncCall) {
+                                    .function = *function,
+                                    .argv = data->argv,
+                                    .returned = data->returned
+                                } }
+                            };
+                        }
                         found = 1;
                         break;
                     }
                 }
                 if(found) { continue; }
                 // still not found? -> error
-                char* name_null_terminated = malloc(data->name.length + 1);
-                memcpy(name_null_terminated, data->name.data, data->name.length);
-                name_null_terminated[data->name.length] = '\0';
+                char* name_null_terminated = malloc(name->length + 1);
+                memcpy(name_null_terminated, name->data, name->length);
+                name_null_terminated[name->length] = '\0';
                 printf("No function with the name '%s' could be found in any loaded module.\n", name_null_terminated);
                 free(name_null_terminated);
                 exit(1);
@@ -268,11 +288,24 @@ void flatten_combine(Module* modules, size_t module_count, Instruction** instruc
     }\
 }
 
-void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_count) {
-    InstrC current_index = 0;
-    Vector frames = create_vector(sizeof(Frame));
+void async_execute(void* args) {
+    Runtime* r = (Runtime*) ((void**) args)[0];
+    GC* gc = (GC*) ((void**) args)[1];
+    ThreadPool* tp = (ThreadPool*) ((void**) args)[2];
+    Instruction* instructions = (Instruction*) ((void**) args)[3];
+    InstrC instruction_count = (InstrC) ((void**) args)[4];
+    IoliteAllocation* base_frame = (IoliteAllocation*) ((void**) args)[5];
+    IoliteValue* base_return = (IoliteValue*) ((void**) args)[6];
+    InstrC current_index = (InstrC) ((void**) args)[7];
+    execute(r, gc, tp, instructions, instruction_count, base_frame, base_return, current_index);
+    free(args);
+}
+
+void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index) {
+    Vector frames = create_vector(sizeof(IoliteAllocation*));
+    vector_push(&frames, base_frame);
     Vector return_idx = create_vector(sizeof(InstrC));
-    Frame* current_frame;
+    IoliteAllocation* current_frame = base_frame;
     VarIdx return_val_dest_var;
     Instruction* i;
     while(current_index < instruction_count) {
@@ -280,14 +313,16 @@ void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_c
         switch(i->type) {
             case FUNCTION: /* nothing to do, functions have already been loaded */ break; 
             case CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
+            case ASYNC_CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
             case EXTERNAL_CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
             case RETURN: case RETURN_NOTHING: {
                 vector_pop(&frames);
-                Frame* old_frame = frames.size > 0? vector_get(&frames, frames.size - 1) : NULL;
+                IoliteAllocation* old_frame = frames.size > 0? *((IoliteAllocation**) vector_get(&frames, frames.size - 1)) : NULL;
                 if(i->type == RETURN) {
                     Instruction_Return* data = &i->data.return_data;
                     IoliteValue* return_val = &current_frame->values[data->value];
                     IoliteValue* dest = &old_frame->values[return_val_dest_var];
+                    if(old_frame == NULL) { dest = base_return; }
                     if(return_val->type == REFERENCE) { return_val->value.ref->stack_reference_count += 1; }
                     if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
                 }
@@ -295,7 +330,11 @@ void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_c
                     IoliteValue* val = &current_frame->values[var];
                     if(val->type == REFERENCE) { val->value.ref->stack_reference_count -= 1; }
                 }
-                free(current_frame->values);
+                current_frame->stack_reference_count -= 1;
+                if(old_frame == NULL) {
+                    current_index = instruction_count;
+                    continue;
+                }
                 current_frame = old_frame;
                 InstrC* new_index = vector_get(&return_idx, return_idx.size - 1);
                 current_index = *new_index;
@@ -647,24 +686,51 @@ void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_c
 
             case RESOLVED_CALL: {
                 Instruction_ResolvedCall* data = &i->data.resolved_call_data;
-                Frame call_frame;
-                call_frame.size = data->function->argc + data->function->varc;
-                call_frame.values = malloc(sizeof(IoliteValue) * call_frame.size);
-                for(VarIdx var_index = 0; var_index < call_frame.size; var_index += 1) {
-                    call_frame.values[var_index].type = UNIT;
+                IoliteAllocation* call_frame = gc_allocate(gc, data->function->argc + data->function->varc);
+                for(VarIdx var_index = 0; var_index < call_frame->size; var_index += 1) {
+                    call_frame->values[var_index].type = UNIT;
                 }
                 for(VarIdx arg_index = 0; arg_index < data->function->argc; arg_index += 1) {
                     IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
                     if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
-                    call_frame.values[arg_index] = *arg;
+                    call_frame->values[arg_index] = *arg;
                 }
                 vector_push(&frames, &call_frame);
                 InstrC next_index = current_index + 1;
                 vector_push(&return_idx, &next_index);
                 current_index = data->function->instruction_index;
                 return_val_dest_var = data->returned;
-                current_frame = vector_get(&frames, frames.size - 1);
+                current_frame = call_frame;
                 continue;
+            } break;
+            case RESOLVED_ASYNC_CALL: {
+                Instruction_ResolvedAsyncCall* data = &i->data.resolved_async_call_data;
+                IoliteAllocation* call_frame = gc_allocate(gc, data->function->argc + data->function->varc);
+                for(VarIdx var_index = 0; var_index < call_frame->size; var_index += 1) {
+                    call_frame->values[var_index].type = UNIT;
+                }
+                for(VarIdx arg_index = 0; arg_index < data->function->argc; arg_index += 1) {
+                    IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
+                    if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
+                    call_frame->values[arg_index] = *arg;
+                }
+                IoliteValue* dest = &current_frame->values[data->returned];
+                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+                IoliteAllocation* return_value_holder = gc_allocate(gc, 2);
+                *dest = (IoliteValue) { .type = REFERENCE, .value = { .ref = return_value_holder } };
+                return_value_holder->values[0] = (IoliteValue) { .type = REFERENCE, .value = { .ref = NULL } };
+                void** args = malloc(sizeof(void*) * 8);
+                args[0] = r;
+                args[1] = gc;
+                args[2] = tp;
+                args[3] = instructions;
+                args[4] = (void*) instruction_count;
+                args[5] = call_frame;
+                args[6] = &return_value_holder->values[0];
+                args[7] = (void*) data->function->instruction_index;
+                return_value_holder->values[1] = (IoliteValue) { .type = U64, .value = {
+                    .u64 = threadpool_do(tp, &async_execute, args)
+                } };
             } break;
             case RESOLVED_EXTERNAL_CALL: {
                 Instruction_ResolvedExternalCall* data = &i->data.resolved_external_call_data;
@@ -775,4 +841,11 @@ void execute(Runtime* r, GC* gc, Instruction* instructions, InstrC instruction_c
         }
         current_index += 1;
     }
+
+    vector_cleanup(&frames);
+    vector_cleanup(&return_idx);
+}
+
+void runtime_cleanup(Runtime* r) {
+    vector_cleanup(&r->functions);
 }

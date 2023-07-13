@@ -3,6 +3,7 @@
 #define IOLITEVM_API_HEADER
 
 #include <stdint.h>
+#include <stdatomic.h>
 
 
 typedef struct {
@@ -24,7 +25,7 @@ typedef struct {
 typedef struct IoliteAllocation {
     IoliteValue* values;
     uint64_t size;
-    uint32_t stack_reference_count;
+    _Atomic(uint32_t) stack_reference_count; // stop data races (runtime modifies, GC reads) 
     uint8_t gc_flags;
 } IoliteAllocation;
 

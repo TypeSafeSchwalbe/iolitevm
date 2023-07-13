@@ -18,6 +18,7 @@ typedef uint64_t InstrC;
 
 typedef struct { MString name; uint16_t argc; VarIdx varc; InstrC instruction_index; struct Instruction* body; InstrC body_length; } Instruction_Function;
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_Call;
+typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_AsyncCall;
 typedef struct { MString name; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ExternalCall;
 typedef struct { VarIdx value; } Instruction_Return;
 
@@ -64,6 +65,7 @@ typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertF32;
 typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertF64;
 
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
+typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedAsyncCall;
 typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
 
 typedef struct { VarIdx size; VarIdx dest; } Instruction_MallocDynamic;
@@ -78,7 +80,7 @@ typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instructi
 
 typedef enum {
     // part of binaries
-    FUNCTION, CALL, EXTERNAL_CALL, RETURN, RETURN_NOTHING,
+    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, RETURN, RETURN_NOTHING,
     IF, LOOP, BREAK, CONTINUE,
     COPY,
     PUT_U8, PUT_U16, PUT_U32, PUT_U64, PUT_S8, PUT_S16, PUT_S32, PUT_S64, PUT_F32, PUT_F64,
@@ -86,7 +88,7 @@ typedef enum {
     ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, NEGATE,
     CONVERT_U8, CONVERT_U16, CONVERT_U32, CONVERT_U64, CONVERT_S8, CONVERT_S16, CONVERT_S32, CONVERT_S64, CONVERT_F32, CONVERT_F64,
     // not part of binaries
-    RESOLVED_CALL, RESOLVED_EXTERNAL_CALL,
+    RESOLVED_CALL, RESOLVED_ASYNC_CALL, RESOLVED_EXTERNAL_CALL,
     MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED,
     JUMP, CONDITIONAL_JUMP
 } InstructionType;
@@ -94,6 +96,7 @@ typedef enum {
 typedef union {
     Instruction_Function function_data;
     Instruction_Call call_data;
+    Instruction_AsyncCall async_call_data;
     Instruction_ExternalCall external_call_data;
     Instruction_Return return_data;
 
@@ -140,6 +143,7 @@ typedef union {
     Instruction_ConvertF64 convert_f64_data;
 
     Instruction_ResolvedCall resolved_call_data;
+    Instruction_ResolvedAsyncCall resolved_async_call_data;
     Instruction_ResolvedExternalCall resolved_external_call_data;
 
     Instruction_MallocDynamic malloc_dynamic_data;
