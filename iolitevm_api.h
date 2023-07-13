@@ -7,11 +7,18 @@
 
 
 typedef struct {
+    struct IoliteAllocation* frame;
+    uint64_t instruction_index;
+    uint16_t args_offset;
+} IoliteClosure;
+
+typedef struct {
     enum Type {
         U8, U16, U32, U64,
         S8, S16, S32, S64,
         F32, F64,
         REFERENCE,
+        CLOSURE,
         UNIT
     } type;
     union {
@@ -19,6 +26,7 @@ typedef struct {
         int8_t s8; int16_t s16; int32_t s32; int64_t s64;
         float f32; double f64;
         struct IoliteAllocation* ref;
+        IoliteClosure closure; 
     } value;
 } IoliteValue;
 

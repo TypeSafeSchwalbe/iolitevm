@@ -51,10 +51,18 @@ void gc_mark_reachable(IoliteAllocation* a) {
     // mark all values in the allocation that are references as reachable, recursively
     for(size_t contained_value_index = 0; contained_value_index < a->size; contained_value_index += 1) {
         IoliteValue* v = &a->values[contained_value_index];
-        if(v->type != REFERENCE) { continue; }
-        if(v->value.ref == NULL) { continue; }
-        if((v->value.ref->gc_flags & GC_REACHABLE) > 0) { continue; }
-        gc_mark_reachable(v->value.ref);
+        switch(v->type) {
+            case REFERENCE: {
+                if(v->value.ref == NULL) { continue; }
+                if((v->value.ref->gc_flags & GC_REACHABLE) > 0) { continue; }
+                gc_mark_reachable(v->value.ref);
+            } break;
+            case CLOSURE: {
+                if((v->value.closure.frame->gc_flags & GC_REACHABLE) > 0) { continue; }
+                gc_mark_reachable(v->value.closure.frame);
+            } break;
+            default: {}
+        }
     }
 }
 

@@ -4,19 +4,169 @@
 #include "runtime.h"
 
 
-Runtime create_runtime() {
-    Runtime r;
-    r.functions = create_vector(sizeof(Instruction_Function*));
-    return r;
+InstrC calculate_flat_length(Instruction* instructions, InstrC instruction_count) {
+    InstrC length = 0;
+    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
+        Instruction* i = &instructions[instruction_index];
+        switch(i->type) {
+            case FUNCTION: {
+                Instruction_Function* data = &i->data.function_data;
+                // [FUNCTION]
+                // ----------------
+                // <function>
+                // [FUNCTION BODY]
+                length += 1
+                    + 1
+                    + calculate_flat_length(data->body, data->body_length);
+            } break;
+            case PUT_CLOSURE: {
+                Instruction_PutClosure* data = &i->data.put_closure_data;
+                // [PUT CLOSURE]
+                // ----------------
+                // <put closure>
+                // <jump>
+                // [CLOSURE BODY]
+                length += 1
+                    + 1
+                    + calculate_flat_length(data->body, data->body_length);
+            } break;
+            case IF: {
+                Instruction_If* data = &i->data.if_data;
+                // [IF]
+                // ----------------
+                // <conditional jump>
+                // [IF BODY]
+                // <jump>
+                // [ELSE BODY]
+                length += 1
+                    + calculate_flat_length(data->if_body, data->if_body_length)
+                    + 1
+                    + calculate_flat_length(data->else_body, data->else_body_length);
+            } break;
+            case LOOP: {
+                Instruction_Loop* data = &i->data.loop_data;
+                // [LOOP]
+                // ----------------
+                // [LOOP BODY]
+                // <jump>
+                length += calculate_flat_length(data->body, data->body_length)
+                    + 1;
+            } break;
+            default: length += 1;
+        }
+    }
+    return length;
 }
 
-void discover_symbols(Runtime* r, Module* m) {
-    for(InstrC instruction_index = 0; instruction_index < m->body_length; instruction_index += 1) {
-        Instruction* instruction = &m->body[instruction_index];
+void flatten_instructions(
+        Instruction* src_instructions,
+        InstrC src_instruction_count,
+        Instruction* dest_instructions,
+        InstrC* absolute_index,
+        InstrC parent_loop_absolute_start,
+        InstrC parent_loop_absolute_post
+) {
+    InstrC relative_index = 0;
+    while(relative_index < src_instruction_count) {
+        Instruction* i = &src_instructions[relative_index];
+        switch(i->type) {
+            case FUNCTION: {
+                Instruction_Function* data = &i->data.function_data;
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = 0
+                } } };
+                InstrC* jump_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
+                *absolute_index += 1;
+                dest_instructions[*absolute_index] = *i;
+                InstrC* body_idx = &dest_instructions[*absolute_index].data.function_data.instruction_index;
+                *absolute_index += 1;
+                *body_idx = *absolute_index;
+                flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
+                *jump_dest = *absolute_index;
+            } break;
+            case PUT_CLOSURE: {
+                Instruction_PutClosure* data = &i->data.put_closure_data;
+                dest_instructions[*absolute_index] = *i;
+                InstrC* body_idx = &dest_instructions[*absolute_index].data.put_closure_data.instruction_index;
+                *absolute_index += 1;
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = 0
+                } } };
+                InstrC* jump_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
+                *absolute_index += 1;
+                *body_idx = *absolute_index;
+                flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
+                *jump_dest = *absolute_index;
+            } break;
+            case IF: {
+                Instruction_If* data = &i->data.if_data;
+                dest_instructions[*absolute_index] = (Instruction) { .type = CONDITIONAL_JUMP, .data = { .conditional_jump_data = {
+                    .condition = data->condition,
+                    .if_dest = *absolute_index + 1,
+                    .else_dest = 0
+                } } };
+                InstrC* jmp_else_dest = &dest_instructions[*absolute_index].data.conditional_jump_data.else_dest;
+                *absolute_index += 1;
+                flatten_instructions(data->if_body, data->if_body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = 0
+                } } };
+                InstrC* if_jmp_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
+                *absolute_index += 1;
+                *jmp_else_dest = *absolute_index;
+                flatten_instructions(data->else_body, data->else_body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
+                *if_jmp_dest = *absolute_index;
+            } break;
+            case LOOP: {
+                Instruction_Loop* data = &i->data.loop_data;
+                InstrC loop_start_index = *absolute_index;
+                flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, *absolute_index, *absolute_index + calculate_flat_length(data->body, data->body_length) + 1);
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = loop_start_index
+                } } };
+                *absolute_index += 1;
+            } break;
+            case CONTINUE: {
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = parent_loop_absolute_start
+                } } };
+                *absolute_index += 1;
+            } break;
+            case BREAK: {
+                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
+                    .dest = parent_loop_absolute_post
+                } } };
+                *absolute_index += 1;
+            } break;
+            default: {
+                dest_instructions[*absolute_index] = *i;
+                *absolute_index += 1;
+            } break;
+        }
+        relative_index += 1;
+    }
+}
+
+void flatten_combine(Module* modules, size_t module_count, Instruction** instructions, InstrC* instruction_count) {
+    *instruction_count = 0;
+    for(size_t module_index = 0; module_index < module_count; module_index += 1) {
+        *instruction_count += calculate_flat_length(modules[module_index].body, modules[module_index].body_length);
+    }
+    *instructions = malloc(sizeof(Instruction) * *instruction_count);
+    InstrC instruction_index = 0;
+    for(size_t module_index = 0; module_index < module_count; module_index += 1) {
+        flatten_instructions(modules[module_index].body, modules[module_index].body_length, *instructions, &instruction_index, 0, *instruction_count);
+    }
+}
+
+
+void discover_symbols(Instruction* instructions, InstrC instruction_count, Vector* functions) {
+    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
+        Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
             case FUNCTION: {
                 Instruction_Function* function_data = &instruction->data.function_data;
-                vector_push(&r->functions, &function_data);
+                vector_push(functions, &function_data);
             } break;
 
             default: {}
@@ -24,7 +174,7 @@ void discover_symbols(Runtime* r, Module* m) {
     }
 }
 
-void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
+void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
@@ -39,8 +189,8 @@ void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, Instr
                 }
                 // try to find the function in all loaded module functions
                 uint8_t found = 0;
-                for(size_t function_index = 0; function_index < r->functions.size; function_index += 1) {
-                    Instruction_Function** function = vector_get(&r->functions, function_index);
+                for(size_t function_index = 0; function_index < functions->size; function_index += 1) {
+                    Instruction_Function** function = vector_get(functions, function_index);
                     if((*function)->name.length == name->length
                     && memcmp((*function)->name.data, name->data, name->length) == 0) {
                         if(instruction->type == CALL) {
@@ -102,154 +252,8 @@ void resolve_symbols(Runtime* r, DLibLoader* l, Instruction* instructions, Instr
                 free(name_null_terminated);
                 exit(1);
             } break;
-
-            case FUNCTION: {
-                Instruction_Function* data = &instruction->data.function_data;
-                resolve_symbols(r, l, data->body, data->body_length);
-            } break;
-            case IF: {
-                Instruction_If* data = &instruction->data.if_data;
-                resolve_symbols(r, l, data->if_body, data->if_body_length);
-                resolve_symbols(r, l, data->else_body, data->else_body_length);
-            } break;
-            case LOOP: {
-                Instruction_Loop* data = &instruction->data.loop_data;
-                resolve_symbols(r, l, data->body, data->body_length);
-            } break;
-
             default: {}
         }
-    }
-}
-
-
-InstrC calculate_flat_length(Instruction* instructions, InstrC instruction_count) {
-    InstrC length = 0;
-    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
-        Instruction* i = &instructions[instruction_index];
-        switch(i->type) {
-            case FUNCTION: {
-                Instruction_Function* data = &i->data.function_data;
-                // [FUNCTION]
-                // ----------------
-                // <jump>
-                // <function>
-                // [FUNCTION BODY]
-                length += 1
-                    + 1
-                    + calculate_flat_length(data->body, data->body_length);
-            } break;
-            case IF: {
-                Instruction_If* data = &i->data.if_data;
-                // [IF]
-                // ----------------
-                // <conditional jump>
-                // [IF BODY]
-                // <jump>
-                // [ELSE BODY]
-                length += 1
-                    + calculate_flat_length(data->if_body, data->if_body_length)
-                    + 1
-                    + calculate_flat_length(data->else_body, data->else_body_length);
-            } break;
-            case LOOP: {
-                Instruction_Loop* data = &i->data.loop_data;
-                // [LOOP]
-                // ----------------
-                // [LOOP BODY]
-                // <jump>
-                length += calculate_flat_length(data->body, data->body_length)
-                    + 1;
-            } break;
-            default: length += 1;
-        }
-    }
-    return length;
-}
-
-void flatten_instructions(
-        Instruction* src_instructions,
-        InstrC src_instruction_count,
-        Instruction* dest_instructions,
-        InstrC* absolute_index,
-        InstrC parent_loop_absolute_start,
-        InstrC parent_loop_absolute_post
-) {
-    InstrC relative_index = 0;
-    while(relative_index < src_instruction_count) {
-        Instruction* i = &src_instructions[relative_index];
-        switch(i->type) {
-            case FUNCTION: {
-                Instruction_Function* data = &i->data.function_data;
-                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
-                    .dest = 0
-                } } };
-                InstrC* pre_jump_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
-                *absolute_index += 1;
-                dest_instructions[*absolute_index] = src_instructions[relative_index];
-                *absolute_index += 1;
-                data->instruction_index = *absolute_index;
-                flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
-                *pre_jump_dest = *absolute_index;
-            } break;
-            case IF: {
-                Instruction_If* data = &i->data.if_data;
-                dest_instructions[*absolute_index] = (Instruction) { .type = CONDITIONAL_JUMP, .data = { .conditional_jump_data = {
-                    .condition = data->condition,
-                    .if_dest = *absolute_index + 1,
-                    .else_dest = 0
-                } } };
-                InstrC* jmp_else_dest = &dest_instructions[*absolute_index].data.conditional_jump_data.else_dest;
-                *absolute_index += 1;
-                flatten_instructions(data->if_body, data->if_body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
-                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
-                    .dest = 0
-                } } };
-                InstrC* if_jmp_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
-                *absolute_index += 1;
-                *jmp_else_dest = *absolute_index;
-                flatten_instructions(data->else_body, data->else_body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
-                *if_jmp_dest = *absolute_index;
-            } break;
-            case LOOP: {
-                Instruction_Loop* data = &i->data.loop_data;
-                InstrC loop_start_index = *absolute_index;
-                flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, *absolute_index, *absolute_index + calculate_flat_length(data->body, data->body_length) + 1);
-                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
-                    .dest = loop_start_index
-                } } };
-                *absolute_index += 1;
-            } break;
-            case CONTINUE: {
-                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
-                    .dest = parent_loop_absolute_start
-                } } };
-                *absolute_index += 1;
-            } break;
-            case BREAK: {
-                dest_instructions[*absolute_index] = (Instruction) { .type = JUMP, .data = { .jump_data = {
-                    .dest = parent_loop_absolute_post
-                } } };
-                *absolute_index += 1;
-            } break;
-            default: {
-                dest_instructions[*absolute_index] = src_instructions[relative_index];
-                *absolute_index += 1;
-            } break;
-        }
-        relative_index += 1;
-    }
-}
-
-void flatten_combine(Module* modules, size_t module_count, Instruction** instructions, InstrC* instruction_count) {
-    *instruction_count = 0;
-    for(size_t module_index = 0; module_index < module_count; module_index += 1) {
-        *instruction_count += calculate_flat_length(modules[module_index].body, modules[module_index].body_length);
-    }
-    *instructions = malloc(sizeof(Instruction) * *instruction_count);
-    InstrC instruction_index = 0;
-    for(size_t module_index = 0; module_index < module_count; module_index += 1) {
-        flatten_instructions(modules[module_index].body, modules[module_index].body_length, *instructions, &instruction_index, 0, *instruction_count);
     }
 }
 
@@ -289,24 +293,23 @@ void flatten_combine(Module* modules, size_t module_count, Instruction** instruc
 }
 
 void async_execute(void* args) {
-    Runtime* r = (Runtime*) ((void**) args)[0];
-    GC* gc = (GC*) ((void**) args)[1];
-    ThreadPool* tp = (ThreadPool*) ((void**) args)[2];
-    Instruction* instructions = (Instruction*) ((void**) args)[3];
-    InstrC instruction_count = (InstrC) ((void**) args)[4];
-    IoliteAllocation* base_frame = (IoliteAllocation*) ((void**) args)[5];
-    IoliteValue* base_return = (IoliteValue*) ((void**) args)[6];
-    InstrC current_index = (InstrC) ((void**) args)[7];
-    execute(r, gc, tp, instructions, instruction_count, base_frame, base_return, current_index);
+    GC* gc = (GC*) ((void**) args)[0];
+    ThreadPool* tp = (ThreadPool*) ((void**) args)[1];
+    Instruction* instructions = (Instruction*) ((void**) args)[2];
+    InstrC instruction_count = (InstrC) ((void**) args)[3];
+    IoliteAllocation* base_frame = (IoliteAllocation*) ((void**) args)[4];
+    IoliteValue* base_return = (IoliteValue*) ((void**) args)[5];
+    InstrC current_index = (InstrC) ((void**) args)[6];
+    execute(gc, tp, instructions, instruction_count, base_frame, base_return, current_index);
     free(args);
 }
 
-void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index) {
+void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index) {
     Vector frames = create_vector(sizeof(IoliteAllocation*));
     vector_push(&frames, base_frame);
     Vector return_idx = create_vector(sizeof(InstrC));
     IoliteAllocation* current_frame = base_frame;
-    VarIdx return_val_dest_var;
+    VarIdx return_val_dest_var = 0;
     Instruction* i;
     while(current_index < instruction_count) {
         i = &instructions[current_index];
@@ -315,6 +318,25 @@ void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, Inst
             case CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
             case ASYNC_CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
             case EXTERNAL_CALL: /* call should be resolved, we shouldn't ever encounter this instruction */ break;
+            case CLOSURE_CALL: {
+                Instruction_ClosureCall* data = &i->data.closure_call_data;
+                IoliteClosure* closure = &current_frame->values[data->called].value.closure;
+                for(VarIdx arg_index = 0; arg_index < data->argc; arg_index += 1) {
+                    IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
+                    IoliteValue* dest = &closure->frame->values[closure->args_offset + arg_index];
+                    if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
+                    if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+                    *dest = *arg;
+                }
+                closure->frame->stack_reference_count += 1;
+                vector_push(&frames, &closure->frame);
+                InstrC next_index = current_index + 1;
+                vector_push(&return_idx, &next_index);
+                current_index = closure->instruction_index;
+                return_val_dest_var = data->returned;
+                current_frame = closure->frame;
+                continue;
+            } break;
             case RETURN: case RETURN_NOTHING: {
                 vector_pop(&frames);
                 IoliteAllocation* old_frame = frames.size > 0? *((IoliteAllocation**) vector_get(&frames, frames.size - 1)) : NULL;
@@ -416,6 +438,16 @@ void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, Inst
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
                 *dest = (IoliteValue) { .type = F64, .value = { .f64 = data->value } };
+            } break;
+            case PUT_CLOSURE: {
+                Instruction_PutClosure* data = &i->data.put_closure_data;
+                IoliteValue* dest = &current_frame->values[data->dest];
+                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+                *dest = (IoliteValue) { .type = CLOSURE, .value = { .closure = {
+                    .frame = current_frame,
+                    .instruction_index = data->instruction_index,
+                    .args_offset = data->args_offset
+                } } };
             } break;
 
             case EQUALS: {
@@ -719,15 +751,14 @@ void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, Inst
                 IoliteAllocation* return_value_holder = gc_allocate(gc, 2);
                 *dest = (IoliteValue) { .type = REFERENCE, .value = { .ref = return_value_holder } };
                 return_value_holder->values[0] = (IoliteValue) { .type = REFERENCE, .value = { .ref = NULL } };
-                void** args = malloc(sizeof(void*) * 8);
-                args[0] = r;
-                args[1] = gc;
-                args[2] = tp;
-                args[3] = instructions;
-                args[4] = (void*) instruction_count;
-                args[5] = call_frame;
-                args[6] = &return_value_holder->values[0];
-                args[7] = (void*) data->function->instruction_index;
+                void** args = malloc(sizeof(void*) * 7);
+                args[0] = gc;
+                args[1] = tp;
+                args[2] = instructions;
+                args[3] = (void*) instruction_count;
+                args[4] = call_frame;
+                args[5] = &return_value_holder->values[0];
+                args[6] = (void*) data->function->instruction_index;
                 return_value_holder->values[1] = (IoliteValue) { .type = U64, .value = {
                     .u64 = threadpool_do(tp, &async_execute, args)
                 } };
@@ -844,8 +875,4 @@ void execute(Runtime* r, GC* gc, ThreadPool* tp, Instruction* instructions, Inst
 
     vector_cleanup(&frames);
     vector_cleanup(&return_idx);
-}
-
-void runtime_cleanup(Runtime* r) {
-    vector_cleanup(&r->functions);
 }

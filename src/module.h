@@ -20,6 +20,7 @@ typedef struct { MString name; uint16_t argc; VarIdx varc; InstrC instruction_in
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_Call;
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_AsyncCall;
 typedef struct { MString name; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ExternalCall;
+typedef struct { VarIdx called; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ClosureCall;
 typedef struct { VarIdx value; } Instruction_Return;
 
 typedef struct { VarIdx condition; struct Instruction* if_body; InstrC if_body_length; struct Instruction* else_body; InstrC else_body_length; } Instruction_If;
@@ -37,6 +38,7 @@ typedef struct { int32_t value; VarIdx dest; } Instruction_PutS32;
 typedef struct { int64_t value; VarIdx dest; } Instruction_PutS64;
 typedef struct { float value; VarIdx dest; } Instruction_PutF32;
 typedef struct { double value; VarIdx dest; } Instruction_PutF64;
+typedef struct { InstrC instruction_index; VarIdx args_offset; struct Instruction* body; InstrC body_length; VarIdx dest; } Instruction_PutClosure;
 
 typedef struct { VarIdx a; VarIdx b; VarIdx dest; } Instruction_Equals;
 typedef struct { VarIdx a; VarIdx b; VarIdx dest; } Instruction_NotEquals;
@@ -80,10 +82,10 @@ typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instructi
 
 typedef enum {
     // part of binaries
-    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, RETURN, RETURN_NOTHING,
+    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING,
     IF, LOOP, BREAK, CONTINUE,
     COPY,
-    PUT_U8, PUT_U16, PUT_U32, PUT_U64, PUT_S8, PUT_S16, PUT_S32, PUT_S64, PUT_F32, PUT_F64,
+    PUT_U8, PUT_U16, PUT_U32, PUT_U64, PUT_S8, PUT_S16, PUT_S32, PUT_S64, PUT_F32, PUT_F64, PUT_CLOSURE,
     EQUALS, NOT_EQUALS, LESS_THAN, GREATER_THAN, LESS_THAN_EQUALS, GREATER_THAN_EQUALS, NOT,
     ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, NEGATE,
     CONVERT_U8, CONVERT_U16, CONVERT_U32, CONVERT_U64, CONVERT_S8, CONVERT_S16, CONVERT_S32, CONVERT_S64, CONVERT_F32, CONVERT_F64,
@@ -98,6 +100,7 @@ typedef union {
     Instruction_Call call_data;
     Instruction_AsyncCall async_call_data;
     Instruction_ExternalCall external_call_data;
+    Instruction_ClosureCall closure_call_data;
     Instruction_Return return_data;
 
     Instruction_If if_data;
@@ -115,6 +118,7 @@ typedef union {
     Instruction_PutS64 put_s64_data;
     Instruction_PutF32 put_f32_data;
     Instruction_PutF64 put_f64_data;
+    Instruction_PutClosure put_closure_data;
 
     Instruction_Equals equals_data;
     Instruction_NotEquals not_equals_data;

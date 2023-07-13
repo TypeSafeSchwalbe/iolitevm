@@ -15,6 +15,7 @@ int main() {
     dlibs_load(&dlibs, "testdlib/out/testdlib.so");
 
     // manually create a test module, reading binaries is still a TODO
+    /*
     MString main_s = (MString) { .length = 4, .data = "main" };
     MString println_f32_s = (MString) { .length = 11, .data = "println_f32" };
     Module test;
@@ -36,31 +37,64 @@ int main() {
             { .type = RETURN_NOTHING }
         }, .body_length = 7 } } },
 
-        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },
         { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
         { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 2 } } },
-        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 1 } } },
-        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 2 } } }
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 3 } } },
+        { .type = ASYNC_CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 4 } } }
     }; 
     test.body_length = 6;
+    */
 
-    // create a runtime, discover all symbols and resolve them
-    Runtime r = create_runtime();
-    discover_symbols(&r, &test);
-    resolve_symbols(&r, &dlibs, test.body, test.body_length);
+    /* 
+        Equivalent Iolite code
+        +----------------------------------+
+        | fun println_f32(f32 x) ext       |
+        |                                  |
+        | fun main()                       |
+        |     fun() var0 = () ->           |
+        |         f32 var1 = 6.28          |
+        |         println_f32(var1)        |
+        |         return                   |
+        |     (var0)()                     |
+        |     return                       |
+        +----------------------------------+
+    */
+    MString main_s = (MString) { .length = 4, .data = "main" };
+    MString println_f32_s = (MString) { .length = 11, .data = "println_f32" };
+    Module test;
+    test.body = (Instruction[]) {
+        { .type = FUNCTION, .data = { .function_data = { .name = main_s, .argc = 0, .varc = 2, .body = (Instruction[]) {
+            { .type = PUT_CLOSURE, .data = { .put_closure_data = { .args_offset = 0, .body = (Instruction[]) {
+                { .type = PUT_F32, .data = { .put_f32_data = { .value = 6.28, .dest = 1 } } },
+                { .type = EXTERNAL_CALL, .data = { .external_call_data = { .name = println_f32_s, .argc = 1, .argv = (VarIdx[]) { 1 }, .returned = 0 } } },
+                { .type = RETURN_NOTHING }
+            }, .body_length = 3, .dest = 0 } } },
+            { .type = CLOSURE_CALL, .data = { .closure_call_data = { .called = 0, .argc = 0, .argv = (VarIdx[]) {0}, .returned = 0 } } },
+            { .type = RETURN_NOTHING }
+        }, .body_length = 3 } } },
+
+        { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },
+    };
+    test.body_length = 2;
 
     // flatten and combine all the modules into one long array of instructions
     Instruction* instructions;
     InstrC instruction_count;
     flatten_combine((Module[]) { test }, 1, &instructions, &instruction_count);
-    // create a garbage collector
+
+    // discover all symbols and resolve them
+    Vector functions = create_vector(sizeof(Instruction_Function*));
+    discover_symbols(instructions, instruction_count, &functions);
+    resolve_symbols(&functions, &dlibs, instructions, instruction_count);
+
+    // create a garbage collector and garbage collector
     GC gc = create_gc();
-    // create a thread pool
     ThreadPool tp = create_thread_pool();
 
     // execute the module
-    IoliteAllocation* base_frame = gc_allocate(&gc, 3);
-    execute(&r, &gc, &tp, instructions, instruction_count, base_frame, NULL, 0);
+    IoliteAllocation* base_frame = gc_allocate(&gc, 0);
+    execute(&gc, &tp, instructions, instruction_count, base_frame, NULL, 0);
 
     // wait for all threads to finish (and clean the thread pool up)
     threadpool_cleanup(&tp);
@@ -70,7 +104,6 @@ int main() {
 
     // cleanup
     dlibs_free(&dlibs);
-    runtime_cleanup(&r);
     free(instructions);
     gc_cleanup(&gc);
     return 0;
