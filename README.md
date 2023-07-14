@@ -1,4 +1,4 @@
-# The Iolite virtual machien
+# The Iolite virtual machine
 
 The Iolite virtual machine executes Iolite byte code.  
 
