@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <stdatomic.h>
 #include "vector.h"
 #include "../iolitevm_api.h"
 
@@ -8,6 +9,7 @@
 typedef struct {
     Vector allocations;
     Vector unused;
+    _Atomic(uint8_t) running;
 } GC;
 
 

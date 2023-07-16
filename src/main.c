@@ -46,32 +46,42 @@ int main() {
     test.body_length = 6;
     */
 
-    /* 
-        Equivalent Iolite code
-        +----------------------------------+
-        | fun println_f32(f32 x) ext       |
-        |                                  |
-        | fun main()                       |
-        |     fun() var0 = () ->           |
-        |         f32 var1 = 6.28          |
-        |         println_f32(var1)        |
-        |         return                   |
-        |     (var0)()                     |
-        |     return                       |
-        +----------------------------------+
+    // Iolite source code approximation
+    /*
+        fun println_flt(float x) ext
+
+        fun main(): 3.14 < 6.28
+            fun() var0 = () ->
+                f32 var1 = 6.28
+                prirntln_flt(var1)
+            (var0)()
     */
+
     MString main_s = (MString) { .length = 4, .data = "main" };
-    MString println_f32_s = (MString) { .length = 11, .data = "println_f32" };
+    MString println_flt_s = (MString) { .length = 11, .data = "println_flt" };
     Module test;
     test.body = (Instruction[]) {
-        { .type = FUNCTION, .data = { .function_data = { .name = main_s, .argc = 0, .varc = 2, .body = (Instruction[]) {
+        { .type = FUNCTION, .data = { .function_data = {
+                .name = main_s, .argc = 0, .varc = 2,
+                .condition_count = 1, .conditions = (Instruction*[]) { (Instruction[]) {
+
+            { .type = PUT_FLT, .data = { .put_flt_data = { .value = 3.14, .dest = 0 } } },
+            { .type = PUT_FLT, .data = { .put_flt_data = { .value = 6.28, .dest = 1 } } },
+            { .type = LESS_THAN, .data = { .less_than_data = { .a = 0, .b = 1, .dest = 1 } } },
+            { .type = ASSERT, .data = { .return_data = { .value = 1 } } }
+
+        } }, .condition_lengths = (InstrC[]) { 4 }, .body = (Instruction[]) {
+
             { .type = PUT_CLOSURE, .data = { .put_closure_data = { .args_offset = 0, .body = (Instruction[]) {
-                { .type = PUT_F32, .data = { .put_f32_data = { .value = 6.28, .dest = 1 } } },
-                { .type = EXTERNAL_CALL, .data = { .external_call_data = { .name = println_f32_s, .argc = 1, .argv = (VarIdx[]) { 1 }, .returned = 0 } } },
+                
+                { .type = PUT_FLT, .data = { .put_flt_data = { .value = 6.28, .dest = 1 } } },
+                { .type = EXTERNAL_CALL, .data = { .external_call_data = { .name = println_flt_s, .argc = 1, .argv = (VarIdx[]) { 1 }, .returned = 0 } } },
                 { .type = RETURN_NOTHING }
+            
             }, .body_length = 3, .dest = 0 } } },
             { .type = CLOSURE_CALL, .data = { .closure_call_data = { .called = 0, .argc = 0, .argv = (VarIdx[]) {0}, .returned = 0 } } },
             { .type = RETURN_NOTHING }
+        
         }, .body_length = 3 } } },
 
         { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },

@@ -16,28 +16,26 @@ typedef uint64_t InstrC;
 
 // Bytecode also needs to include type info and public / private info
 
-typedef struct { MString name; uint16_t argc; VarIdx varc; InstrC instruction_index; struct Instruction* body; InstrC body_length; } Instruction_Function;
+typedef struct {
+    MString name; uint16_t argc; VarIdx varc;
+    uint16_t condition_count; struct Instruction** conditions; InstrC* condition_lengths;
+    InstrC body_instruction_index; struct Instruction* body; InstrC body_length;
+} Instruction_Function;
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_Call;
 typedef struct { MString name; VarIdx* argv; VarIdx returned; } Instruction_AsyncCall;
 typedef struct { MString name; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ExternalCall;
 typedef struct { VarIdx called; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ClosureCall;
 typedef struct { VarIdx value; } Instruction_Return;
+typedef struct { VarIdx value; } Instruction_Assert;
 
 typedef struct { VarIdx condition; struct Instruction* if_body; InstrC if_body_length; struct Instruction* else_body; InstrC else_body_length; } Instruction_If;
 typedef struct { struct Instruction* body; InstrC body_length; } Instruction_Loop;
 
 typedef struct { uint8_t src; uint8_t dest; } Instruction_Copy;
 
-typedef struct { uint8_t value; VarIdx dest; } Instruction_PutU8;
-typedef struct { uint16_t value; VarIdx dest; } Instruction_PutU16;
-typedef struct { uint32_t value; VarIdx dest; } Instruction_PutU32;
-typedef struct { uint64_t value; VarIdx dest; } Instruction_PutU64;
-typedef struct { int8_t value; VarIdx dest; } Instruction_PutS8;
-typedef struct { int16_t value; VarIdx dest; } Instruction_PutS16;
-typedef struct { int32_t value; VarIdx dest; } Instruction_PutS32;
-typedef struct { int64_t value; VarIdx dest; } Instruction_PutS64;
-typedef struct { float value; VarIdx dest; } Instruction_PutF32;
-typedef struct { double value; VarIdx dest; } Instruction_PutF64;
+typedef struct { uint64_t value; VarIdx dest; } Instruction_PutNat;
+typedef struct { int64_t value; VarIdx dest; } Instruction_PutInt;
+typedef struct { double value; VarIdx dest; } Instruction_PutFlt;
 typedef struct { InstrC instruction_index; VarIdx args_offset; struct Instruction* body; InstrC body_length; VarIdx dest; } Instruction_PutClosure;
 
 typedef struct { VarIdx a; VarIdx b; VarIdx dest; } Instruction_Equals;
@@ -55,20 +53,9 @@ typedef struct { VarIdx a; VarIdx b; VarIdx dest; } Instruction_Divide;
 typedef struct { VarIdx a; VarIdx b; VarIdx dest; } Instruction_Modulo;
 typedef struct { VarIdx x; VarIdx dest; } Instruction_Negate;
 
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertU8;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertU16;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertU32;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertU64;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertS8;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertS16;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertS32;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertS64;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertF32;
-typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertF64;
-
-typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
-typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedAsyncCall;
-typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
+typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertToNat;
+typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertToInt;
+typedef struct { VarIdx x; VarIdx dest; } Instruction_ConvertToFlt;
 
 typedef struct { VarIdx size; VarIdx dest; } Instruction_MallocDynamic;
 typedef struct { uint64_t size; VarIdx dest; } Instruction_MallocFixed;
@@ -77,21 +64,26 @@ typedef struct { VarIdx ref; uint64_t index; VarIdx dest; } Instruction_RefGetFi
 typedef struct { VarIdx ref; VarIdx index; VarIdx value; } Instruction_RefSetDynamic;
 typedef struct { VarIdx ref; uint64_t index; VarIdx value; } Instruction_RefSetFixed;
 
+typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
+typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedAsyncCall;
+typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
+
 typedef struct { InstrC dest; } Instruction_Jump;
 typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instruction_ConditionalJump;
 
 typedef enum {
     // part of binaries
-    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING,
+    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING, ASSERT,
+    RECORD, RECORD_INIT, RECORD_GET, RECORD_SET,
     IF, LOOP, BREAK, CONTINUE,
     COPY,
-    PUT_U8, PUT_U16, PUT_U32, PUT_U64, PUT_S8, PUT_S16, PUT_S32, PUT_S64, PUT_F32, PUT_F64, PUT_CLOSURE,
+    PUT_NAT, PUT_INT, PUT_FLT, PUT_CLOSURE,
     EQUALS, NOT_EQUALS, LESS_THAN, GREATER_THAN, LESS_THAN_EQUALS, GREATER_THAN_EQUALS, NOT,
     ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, NEGATE,
-    CONVERT_U8, CONVERT_U16, CONVERT_U32, CONVERT_U64, CONVERT_S8, CONVERT_S16, CONVERT_S32, CONVERT_S64, CONVERT_F32, CONVERT_F64,
+    CONVERT_TO_NAT, CONVERT_TO_INT, CONVERT_TO_FLT,
+    MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED,
     // not part of binaries
     RESOLVED_CALL, RESOLVED_ASYNC_CALL, RESOLVED_EXTERNAL_CALL,
-    MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED,
     JUMP, CONDITIONAL_JUMP
 } InstructionType;
 
@@ -102,22 +94,16 @@ typedef union {
     Instruction_ExternalCall external_call_data;
     Instruction_ClosureCall closure_call_data;
     Instruction_Return return_data;
+    Instruction_Assert assert_data;
 
     Instruction_If if_data;
     Instruction_Loop loop_data;
 
     Instruction_Copy copy_data;
 
-    Instruction_PutU8 put_u8_data;
-    Instruction_PutU16 put_u16_data;
-    Instruction_PutU32 put_u32_data;
-    Instruction_PutU64 put_u64_data;
-    Instruction_PutS8 put_s8_data;
-    Instruction_PutS16 put_s16_data;
-    Instruction_PutS32 put_s32_data;
-    Instruction_PutS64 put_s64_data;
-    Instruction_PutF32 put_f32_data;
-    Instruction_PutF64 put_f64_data;
+    Instruction_PutNat put_nat_data;
+    Instruction_PutInt put_int_data;
+    Instruction_PutFlt put_flt_data;
     Instruction_PutClosure put_closure_data;
 
     Instruction_Equals equals_data;
@@ -135,20 +121,9 @@ typedef union {
     Instruction_Modulo modulo_data;
     Instruction_Negate negate_data;
 
-    Instruction_ConvertU8 convert_u8_data;
-    Instruction_ConvertU16 convert_u16_data;
-    Instruction_ConvertU32 convert_u32_data;
-    Instruction_ConvertU64 convert_u64_data;
-    Instruction_ConvertS8 convert_s8_data;
-    Instruction_ConvertS16 convert_s16_data;
-    Instruction_ConvertS32 convert_s32_data;
-    Instruction_ConvertS64 convert_s64_data;
-    Instruction_ConvertF32 convert_f32_data;
-    Instruction_ConvertF64 convert_f64_data;
-
-    Instruction_ResolvedCall resolved_call_data;
-    Instruction_ResolvedAsyncCall resolved_async_call_data;
-    Instruction_ResolvedExternalCall resolved_external_call_data;
+    Instruction_ConvertToNat convert_to_nat_data;
+    Instruction_ConvertToInt convert_to_int_data;
+    Instruction_ConvertToFlt convert_to_flt_data;
 
     Instruction_MallocDynamic malloc_dynamic_data;
     Instruction_MallocFixed malloc_fixed_data;
@@ -156,6 +131,10 @@ typedef union {
     Instruction_RefGetFixed ref_get_fixed_data;
     Instruction_RefSetDynamic ref_set_dynamic_data;
     Instruction_RefSetFixed ref_set_fixed_data;
+
+    Instruction_ResolvedCall resolved_call_data;
+    Instruction_ResolvedAsyncCall resolved_async_call_data;
+    Instruction_ResolvedExternalCall resolved_external_call_data;
 
     Instruction_Jump jump_data;
     Instruction_ConditionalJump conditional_jump_data;

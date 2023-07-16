@@ -13,11 +13,16 @@ InstrC calculate_flat_length(Instruction* instructions, InstrC instruction_count
                 Instruction_Function* data = &i->data.function_data;
                 // [FUNCTION]
                 // ----------------
+                // <jump>
                 // <function>
+                // [CONDITION BODY] (* condition_count)
                 // [FUNCTION BODY]
                 length += 1
-                    + 1
-                    + calculate_flat_length(data->body, data->body_length);
+                    + 1;
+                for(uint16_t condition_index = 0; condition_index < data->condition_count; condition_index += 1) {
+                    length += calculate_flat_length(data->conditions[condition_index], data->condition_lengths[condition_index]);
+                }
+                length += calculate_flat_length(data->body, data->body_length);
             } break;
             case PUT_CLOSURE: {
                 Instruction_PutClosure* data = &i->data.put_closure_data;
@@ -78,9 +83,12 @@ void flatten_instructions(
                 InstrC* jump_dest = &dest_instructions[*absolute_index].data.jump_data.dest;
                 *absolute_index += 1;
                 dest_instructions[*absolute_index] = *i;
-                InstrC* body_idx = &dest_instructions[*absolute_index].data.function_data.instruction_index;
+                InstrC* body_idx = &dest_instructions[*absolute_index].data.function_data.body_instruction_index;
                 *absolute_index += 1;
                 *body_idx = *absolute_index;
+                for(uint16_t condition_index = 0; condition_index < data->condition_count; condition_index += 1) {
+                    flatten_instructions(data->conditions[condition_index], data->condition_lengths[condition_index], dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
+                }
                 flatten_instructions(data->body, data->body_length, dest_instructions, absolute_index, parent_loop_absolute_start, parent_loop_absolute_post);
                 *jump_dest = *absolute_index;
             } break;
@@ -187,7 +195,7 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                     Instruction_AsyncCall* data = &instruction->data.async_call_data;
                     name = &data->name;
                 }
-                // try to find the function in all loaded module functions
+                // try to find the function in all loaded functions
                 uint8_t found = 0;
                 for(size_t function_index = 0; function_index < functions->size; function_index += 1) {
                     Instruction_Function** function = vector_get(functions, function_index);
@@ -197,7 +205,7 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                             Instruction_Call* data = &instruction->data.call_data;
                             *instruction = (Instruction) {
                                 .type = RESOLVED_CALL,
-                                .data = (InstructionData) { .resolved_call_data = (Instruction_ResolvedCall) {
+                                .data = { .resolved_call_data = {
                                     .function = *function,
                                     .argv = data->argv,
                                     .returned = data->returned
@@ -207,7 +215,7 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                             Instruction_AsyncCall* data = &instruction->data.async_call_data;
                             *instruction = (Instruction) {
                                 .type = RESOLVED_ASYNC_CALL,
-                                .data = (InstructionData) { .resolved_async_call_data = (Instruction_ResolvedAsyncCall) {
+                                .data = { .resolved_async_call_data = {
                                     .function = *function,
                                     .argv = data->argv,
                                     .returned = data->returned
@@ -237,7 +245,7 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                 if(external_function != NULL) {
                     *instruction = (Instruction) {
                         .type = RESOLVED_EXTERNAL_CALL,
-                        .data = (InstructionData) { .resolved_external_call_data = (Instruction_ResolvedExternalCall) {
+                        .data = { .resolved_external_call_data = {
                             .function = external_function,
                             .argc = data->argc,
                             .argv = data->argv,
@@ -252,45 +260,12 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                 free(name_null_terminated);
                 exit(1);
             } break;
+
             default: {}
         }
     }
 }
 
-
-#define BI_OPERATION(OP) switch(a->type) {\
-    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 OP b->value.u8 } }; break;\
-    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 OP b->value.u16 } }; break;\
-    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = a->value.u32 OP b->value.u32 } }; break;\
-    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = a->value.u64 OP b->value.u64 } }; break;\
-    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = a->value.s8 OP b->value.s8 } }; break;\
-    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = a->value.s16 OP b->value.s16 } }; break;\
-    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = a->value.s32 OP b->value.s32 } }; break;\
-    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 OP b->value.s64 } }; break;\
-    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = a->value.f32 OP b->value.f32 } }; break;\
-    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = a->value.f64 OP b->value.f64 } }; break;\
-    default: {\
-        printf("Cannot perform a mathematical / comparative operation on a non-number value!\n");\
-        exit(1);\
-    }\
-}
-
-#define CONVERSION_TO(T) switch(x->type) {\
-    case U8: value = (T) x->value.u8; break;\
-    case U16: value = (T) x->value.u16; break;\
-    case U32: value = (T) x->value.u32; break;\
-    case U64: value = (T) x->value.u64; break;\
-    case S8: value = (T) x->value.s8; break;\
-    case S16: value = (T) x->value.s16; break;\
-    case S32: value = (T) x->value.s32; break;\
-    case S64: value = (T) x->value.s64; break;\
-    case F32: value = (T) x->value.f32; break;\
-    case F64: value = (T) x->value.f64; break;\
-    default: {\
-        printf("Cannot convert a non-number value to another number type!\n");\
-        exit(1);\
-    }\
-}
 
 void async_execute(void* args) {
     GC* gc = (GC*) ((void**) args)[0];
@@ -363,6 +338,22 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 vector_pop(&return_idx);
                 continue;
             } break;
+            case ASSERT: {
+                Instruction_Assert* data = &i->data.assert_data;
+                IoliteValue* cond = &current_frame->values[data->value];
+                uint8_t condition_met = 0;
+                switch(cond->type) {
+                    case NATURAL: condition_met = cond->value.natural != 0; break;
+                    case INTEGER: condition_met = cond->value.integer != 0; break;
+                    case FLOAT: condition_met = cond->value.flt != 0.0; break;
+                    case REFERENCE: condition_met = cond->value.ref != NULL; break;
+                    case UNIT: case CLOSURE: {}
+                }
+                if(!condition_met) {
+                    printf("Function condition unmet.\n");
+                    exit(1);
+                }
+            } break;
             
             case IF: /* nothing to do, ifs were replaced by conditional jumps */ break;
             case LOOP: /* nothing to do, loops were replaced by jumps */ break;
@@ -379,65 +370,23 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 *dest = *src;
             } break;
 
-            case PUT_U8: {
-                Instruction_PutU8* data = &i->data.put_u8_data;
+            case PUT_NAT: {
+                Instruction_PutNat* data = &i->data.put_nat_data;
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U8, .value = { .u8 = data->value } };
+                *dest = (IoliteValue) { .type = NATURAL, .value = { .natural = data->value } };
             } break;
-            case PUT_U16: {
-                Instruction_PutU16* data = &i->data.put_u16_data;
+            case PUT_INT: {
+                Instruction_PutInt* data = &i->data.put_int_data;
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U16, .value = { .u16 = data->value } };
+                *dest = (IoliteValue) { .type = INTEGER, .value = { .integer = data->value } };
             } break;
-            case PUT_U32: {
-                Instruction_PutU32* data = &i->data.put_u32_data;
+            case PUT_FLT: {
+                Instruction_PutFlt* data = &i->data.put_flt_data;
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U32, .value = { .u32 = data->value } };
-            } break;
-            case PUT_U64: {
-                Instruction_PutU64* data = &i->data.put_u64_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U64, .value = { .u64 = data->value } };
-            } break;
-            case PUT_S8: {
-                Instruction_PutS8* data = &i->data.put_s8_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S8, .value = { .s8 = data->value } };
-            } break;
-            case PUT_S16: {
-                Instruction_PutS16* data = &i->data.put_s16_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S16, .value = { .s16 = data->value } };
-            } break;
-            case PUT_S32: {
-                Instruction_PutS32* data = &i->data.put_s32_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S32, .value = { .s32 = data->value } };
-            } break;
-            case PUT_S64: {
-                Instruction_PutS64* data = &i->data.put_s64_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S64, .value = { .s64 = data->value } };
-            } break;
-            case PUT_F32: {
-                Instruction_PutF32* data = &i->data.put_f32_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = F32, .value = { .f32 = data->value } };
-            } break;
-            case PUT_F64: {
-                Instruction_PutF64* data = &i->data.put_f64_data;
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = F64, .value = { .f64 = data->value } };
+                *dest = (IoliteValue) { .type = FLOAT, .value = { .flt = data->value } };
             } break;
             case PUT_CLOSURE: {
                 Instruction_PutClosure* data = &i->data.put_closure_data;
@@ -456,20 +405,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
+                char result_value = 0;
                 switch(a->type) {
-                    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 == b->value.u8 } }; break;
-                    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 == b->value.u16 } }; break;
-                    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = a->value.u32 == b->value.u32 } }; break;
-                    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = a->value.u64 == b->value.u64 } }; break;
-                    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = a->value.s8 == b->value.s8 } }; break;
-                    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = a->value.s16 == b->value.s16 } }; break;
-                    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = a->value.s32 == b->value.s32 } }; break;
-                    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 == b->value.s64 } }; break;
-                    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = a->value.f32 == b->value.f32 } }; break;
-                    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = a->value.f64 == b->value.f64 } }; break;
-                    case REFERENCE: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.ref == b->value.ref } }; break;
-                    case UNIT: break;
+                    case NATURAL: result_value = a->value.natural == b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer == b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt == b->value.flt; break;
+                    case REFERENCE: result_value = a->value.ref == b->value.ref; break;
+                    case UNIT: result_value = 1; break;
                 }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case NOT_EQUALS: {
                 Instruction_NotEquals* data = &i->data.not_equals_data;
@@ -477,20 +421,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
+                char result_value = 0;
                 switch(a->type) {
-                    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 != b->value.u8 } }; break;
-                    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 != b->value.u16 } }; break;
-                    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = a->value.u32 != b->value.u32 } }; break;
-                    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = a->value.u64 != b->value.u64 } }; break;
-                    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = a->value.s8 != b->value.s8 } }; break;
-                    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = a->value.s16 != b->value.s16 } }; break;
-                    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = a->value.s32 != b->value.s32 } }; break;
-                    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 != b->value.s64 } }; break;
-                    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = a->value.f32 != b->value.f32 } }; break;
-                    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = a->value.f64 != b->value.f64 } }; break;
-                    case REFERENCE: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.ref != b->value.ref } }; break;
-                    case UNIT: break;
+                    case NATURAL: result_value = a->value.natural != b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer != b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt != b->value.flt; break;
+                    case REFERENCE: result_value = a->value.ref != b->value.ref; break;
+                    case UNIT: result_value = 0; break;
                 }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case LESS_THAN: {
                 Instruction_LessThan* data = &i->data.less_than_data;
@@ -498,7 +437,17 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(<);
+                char result_value = 0;
+                switch(a->type) {
+                    case NATURAL: result_value = a->value.natural < b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer < b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt < b->value.flt; break;
+                    default: {
+                        printf("Cannot compare a non-number value!\n");
+                        exit(1);
+                    }
+                }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case GREATER_THAN: {
                 Instruction_GreaterThan* data = &i->data.greater_than_data;
@@ -506,7 +455,17 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(>);
+                char result_value = 0;
+                switch(a->type) {
+                    case NATURAL: result_value = a->value.natural > b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer > b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt > b->value.flt; break;
+                    default: {
+                        printf("Cannot compare a non-number value!\n");
+                        exit(1);
+                    }
+                }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case LESS_THAN_EQUALS: {
                 Instruction_LessThanEquals* data = &i->data.less_than_equals_data;
@@ -514,7 +473,17 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(<=);
+                char result_value = 0;
+                switch(a->type) {
+                    case NATURAL: result_value = a->value.natural <= b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer <= b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt <= b->value.flt; break;
+                    default: {
+                        printf("Cannot compare a non-number value!\n");
+                        exit(1);
+                    }
+                }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case GREATER_THAN_EQUALS: {
                 Instruction_GreaterThanEquals* data = &i->data.greater_than_equals_data;
@@ -522,29 +491,24 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(>=);
+                char result_value = 0;
+                switch(a->type) {
+                    case NATURAL: result_value = a->value.natural >= b->value.natural; break;
+                    case INTEGER: result_value = a->value.integer >= b->value.integer; break;
+                    case FLOAT: result_value = a->value.flt >= b->value.flt; break;
+                    default: {
+                        printf("Cannot compare a non-number value!\n");
+                        exit(1);
+                    }
+                }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = result_value } };
             } break;
             case NOT: {
                 Instruction_Not* data = &i->data.not_data;
                 IoliteValue* x = &current_frame->values[data->x];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                switch(x->type) {
-                    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = !x->value.u8 } }; break;
-                    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = !x->value.u16 } }; break;
-                    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = !x->value.u32 } }; break;
-                    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = !x->value.u64 } }; break;
-                    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = !x->value.s8 } }; break;
-                    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = !x->value.s16 } }; break;
-                    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = !x->value.s32 } }; break;
-                    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = !x->value.s64 } }; break;
-                    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = !x->value.f32 } }; break;
-                    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = !x->value.f64 } }; break;
-                    default: {
-                        printf("Cannot negate a non-number value!\n");
-                        exit(1);
-                    }
-                }
+                *result = (IoliteValue) { .type = NATURAL, .value = { .natural = !x->value.natural } };
             } break;
 
             case ADD: {
@@ -553,7 +517,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(+);
+                switch(a->type) {
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = a->value.natural + b->value.natural } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = a->value.integer + b->value.integer } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = a->value.flt + b->value.flt } }; break;
+                    default: {
+                        printf("Cannot add non-number values!\n");
+                        exit(1);
+                    }
+                }
             } break;
             case SUBTRACT: {
                 Instruction_Subtract* data = &i->data.subtract_data;
@@ -561,7 +533,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(-);
+                switch(a->type) {
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = a->value.natural - b->value.natural } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = a->value.integer - b->value.integer } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = a->value.flt - b->value.flt } }; break;
+                    default: {
+                        printf("Cannot subtract non-number values!\n");
+                        exit(1);
+                    }
+                }
             } break;
             case MULTIPLY: {
                 Instruction_Multiply* data = &i->data.multiply_data;
@@ -569,7 +549,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(*);
+                switch(a->type) {
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = a->value.natural * b->value.natural } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = a->value.integer * b->value.integer } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = a->value.flt * b->value.flt } }; break;
+                    default: {
+                        printf("Cannot multiply non-number values!\n");
+                        exit(1);
+                    }
+                }
             } break;
             case DIVIDE: {
                 Instruction_Divide* data = &i->data.divide_data;
@@ -577,7 +565,15 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* b = &current_frame->values[data->b];
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
-                BI_OPERATION(/);
+                switch(a->type) {
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = a->value.natural / b->value.natural } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = a->value.integer / b->value.integer } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = a->value.flt / b->value.flt } }; break;
+                    default: {
+                        printf("Cannot divide non-number values!\n");
+                        exit(1);
+                    }
+                }
             } break;
             case MODULO: {
                 Instruction_Modulo* data = &i->data.modulo_data;
@@ -586,18 +582,11 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
                 switch(a->type) {
-                    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = a->value.u8 % b->value.u8 } }; break;
-                    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = a->value.u16 % b->value.u16 } }; break;
-                    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = a->value.u32 % b->value.u32 } }; break;
-                    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = a->value.u64 % b->value.u64 } }; break;
-                    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = a->value.s8 % b->value.s8 } }; break;
-                    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = a->value.s16 % b->value.s16 } }; break;
-                    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = a->value.s32 % b->value.s32 } }; break;
-                    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = a->value.s64 % b->value.s64 } }; break;
-                    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = (float) fmod(a->value.f32, b->value.f32) } }; break;
-                    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = fmod(a->value.f64, b->value.f64) } }; break;
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = a->value.natural % b->value.natural } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = a->value.integer % b->value.integer } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = fmod(a->value.flt, b->value.flt) } }; break;
                     default: {
-                        printf("Cannot perform modulo on a non-number value!\n");
+                        printf("Cannot perfrom modulo on non-number values!\n");
                         exit(1);
                     }
                 }
@@ -608,112 +597,66 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
                 switch(x->type) {
-                    case U8: *result = (IoliteValue) { .type = U8, .value = { .u8 = -x->value.u8 } }; break;
-                    case U16: *result = (IoliteValue) { .type = U16, .value = { .u16 = -x->value.u16 } }; break;
-                    case U32: *result = (IoliteValue) { .type = U32, .value = { .u32 = -x->value.u32 } }; break;
-                    case U64: *result = (IoliteValue) { .type = U64, .value = { .u64 = -x->value.u64 } }; break;
-                    case S8: *result = (IoliteValue) { .type = S8, .value = { .s8 = -x->value.s8 } }; break;
-                    case S16: *result = (IoliteValue) { .type = S16, .value = { .s16 = -x->value.s16 } }; break;
-                    case S32: *result = (IoliteValue) { .type = S32, .value = { .s32 = -x->value.s32 } }; break;
-                    case S64: *result = (IoliteValue) { .type = S64, .value = { .s64 = -x->value.s64 } }; break;
-                    case F32: *result = (IoliteValue) { .type = F32, .value = { .f32 = -x->value.f32 } }; break;
-                    case F64: *result = (IoliteValue) { .type = F64, .value = { .f64 = -x->value.f64 } }; break;
+                    case NATURAL: *result = (IoliteValue) { .type = NATURAL, .value = { .natural = -(x->value.natural) } }; break;
+                    case INTEGER: *result = (IoliteValue) { .type = INTEGER, .value = { .integer = -(x->value.integer) } }; break;
+                    case FLOAT: *result = (IoliteValue) { .type = FLOAT, .value = { .flt = -(x->value.flt) } }; break;
                     default: {
-                        printf("Cannot perform negation on a non-number value!\n");
+                        printf("Cannot negate non-number values!\n");
                         exit(1);
                     }
                 }
             } break;
 
-            case CONVERT_U8: {
-                Instruction_ConvertU8* data = &i->data.convert_u8_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                uint8_t value;
-                CONVERSION_TO(uint8_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U8, .value = { .u8 = value } };
-            } break;
-            case CONVERT_U16: {
-                Instruction_ConvertU16* data = &i->data.convert_u16_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                uint16_t value;
-                CONVERSION_TO(uint16_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U16, .value = { .u16 = value } };
-            } break;
-            case CONVERT_U32: {
-                Instruction_ConvertU32* data = &i->data.convert_u32_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                uint32_t value;
-                CONVERSION_TO(uint32_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U32, .value = { .u32 = value } };
-            } break;
-            case CONVERT_U64: {
-                Instruction_ConvertU64* data = &i->data.convert_u64_data;
+            case CONVERT_TO_NAT: {
+                Instruction_ConvertToNat* data = &i->data.convert_to_nat_data;
                 IoliteValue* x = &current_frame->values[data->x];
                 uint64_t value;
-                CONVERSION_TO(uint64_t);
+                switch(x->type) {
+                    case NATURAL: value = x->value.natural; break;
+                    case INTEGER: value = (uint64_t) x->value.integer; break;
+                    case FLOAT: value = (uint64_t) x->value.flt; break;
+                    default: {
+                        printf("Cannot convert non-numbers to a natural number!\n");
+                        exit(1);
+                    }
+                }
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = U64, .value = { .u64 = value } };
+                *dest = (IoliteValue) { .type = NATURAL, .value = { .natural = value } };
             } break;
-            case CONVERT_S8: {
-                Instruction_ConvertS8* data = &i->data.convert_s8_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                int8_t value;
-                CONVERSION_TO(int8_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S8, .value = { .s8 = value } };
-            } break;
-            case CONVERT_S16: {
-                Instruction_ConvertS16* data = &i->data.convert_s16_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                int16_t value;
-                CONVERSION_TO(int16_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S16, .value = { .s16 = value } };
-            } break;
-            case CONVERT_S32: {
-                Instruction_ConvertS32* data = &i->data.convert_s32_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                int32_t value;
-                CONVERSION_TO(int32_t);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S32, .value = { .s32 = value } };
-            } break;
-            case CONVERT_S64: {
-                Instruction_ConvertS64* data = &i->data.convert_s64_data;
+            case CONVERT_TO_INT: {
+                Instruction_ConvertToInt* data = &i->data.convert_to_int_data;
                 IoliteValue* x = &current_frame->values[data->x];
                 int64_t value;
-                CONVERSION_TO(int64_t);
+                switch(x->type) {
+                    case NATURAL: value = (int64_t) x->value.natural; break;
+                    case INTEGER: value = x->value.integer; break;
+                    case FLOAT: value = (int64_t) x->value.flt; break;
+                    default: {
+                        printf("Cannot convert non-numbers to an integer!\n");
+                        exit(1);
+                    }
+                }
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = S64, .value = { .s64 = value } };
+                *dest = (IoliteValue) { .type = INTEGER, .value = { .integer = value } };
             } break;
-            case CONVERT_F32: {
-                Instruction_ConvertF32* data = &i->data.convert_f32_data;
-                IoliteValue* x = &current_frame->values[data->x];
-                float value;
-                CONVERSION_TO(float);
-                IoliteValue* dest = &current_frame->values[data->dest];
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = F32, .value = { .f32 = value } };
-            } break;
-            case CONVERT_F64: {
-                Instruction_ConvertF64* data = &i->data.convert_f64_data;
+            case CONVERT_TO_FLT: {
+                Instruction_ConvertToFlt* data = &i->data.convert_to_flt_data;
                 IoliteValue* x = &current_frame->values[data->x];
                 double value;
-                CONVERSION_TO(double);
+                switch(x->type) {
+                    case NATURAL: value = (double) x->value.natural; break;
+                    case INTEGER: value = (double) x->value.integer; break;
+                    case FLOAT: value = x->value.flt; break;
+                    default: {
+                        printf("Cannot convert non-numbers to a floating point number!\n");
+                        exit(1);
+                    }
+                }
                 IoliteValue* dest = &current_frame->values[data->dest];
                 if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = (IoliteValue) { .type = F64, .value = { .f64 = value } };
+                *dest = (IoliteValue) { .type = FLOAT, .value = { .flt = value } };
             } break;
 
             case RESOLVED_CALL: {
@@ -730,7 +673,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 vector_push(&frames, &call_frame);
                 InstrC next_index = current_index + 1;
                 vector_push(&return_idx, &next_index);
-                current_index = data->function->instruction_index;
+                current_index = data->function->body_instruction_index;
                 return_val_dest_var = data->returned;
                 current_frame = call_frame;
                 continue;
@@ -758,9 +701,9 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 args[3] = (void*) instruction_count;
                 args[4] = call_frame;
                 args[5] = &return_value_holder->values[0];
-                args[6] = (void*) data->function->instruction_index;
-                return_value_holder->values[1] = (IoliteValue) { .type = U64, .value = {
-                    .u64 = threadpool_do(tp, &async_execute, args)
+                args[6] = (void*) data->function->body_instruction_index;
+                return_value_holder->values[1] = (IoliteValue) { .type = NATURAL, .value = {
+                    .natural = threadpool_do(tp, &async_execute, args)
                 } };
             } break;
             case RESOLVED_EXTERNAL_CALL: {
@@ -784,7 +727,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 VarIdx dest;
                 if(i->type == MALLOC_DYNAMIC) {
                     Instruction_MallocDynamic* data = &i->data.malloc_dynamic_data;
-                    size = current_frame->values[data->size].value.u64;
+                    size = current_frame->values[data->size].value.natural;
                     dest = data->dest;
                 } else {
                     Instruction_MallocFixed* data = &i->data.malloc_fixed_data;
@@ -804,7 +747,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 if(i->type == REF_GET_DYNAMIC) {
                     Instruction_RefGetDynamic* data = &i->data.ref_get_dynamic_data;
                     ref = data->ref;
-                    index = current_frame->values[data->index].value.u64;
+                    index = current_frame->values[data->index].value.natural;
                     dest = data->dest;
                 } else {
                     Instruction_RefGetFixed* data = &i->data.ref_get_fixed_data;
@@ -826,7 +769,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 if(i->type == REF_SET_DYNAMIC) {
                     Instruction_RefSetDynamic* data = &i->data.ref_set_dynamic_data;
                     ref = data->ref;
-                    index = current_frame->values[data->index].value.u64;
+                    index = current_frame->values[data->index].value.natural;
                     value = data->value;
                 } else {
                     Instruction_RefSetFixed* data = &i->data.ref_set_fixed_data;
@@ -852,16 +795,10 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteValue* cond = &current_frame->values[data->condition];
                 uint8_t cond_true = 0;
                 switch(cond->type) {
-                    case U8: cond_true = cond->value.u8 != 0; break;
-                    case U16: cond_true = cond->value.u16 != 0; break;
-                    case U32: cond_true = cond->value.u32 != 0; break;
-                    case U64: cond_true = cond->value.u64 != 0; break;
-                    case S8: cond_true = cond->value.s8 != 0; break;
-                    case S16: cond_true = cond->value.s16 != 0; break;
-                    case S32: cond_true = cond->value.s32 != 0; break;
-                    case S64: cond_true = cond->value.s64 != 0; break;
-                    case F32: cond_true = cond->value.f32 != 0.0f; break;
-                    case F64: cond_true = cond->value.f64 != 0.0; break;
+                    case NATURAL: cond_true = cond->value.natural != 0; break;
+                    case INTEGER: cond_true = cond->value.integer != 0; break;
+                    case FLOAT: cond_true = cond->value.flt != 0; break;
+                    case REFERENCE: cond_true = cond->value.ref != NULL; break;
                     case UNIT: break;
                     default: cond_true = 1;
                 }
