@@ -24,6 +24,7 @@ typedef struct {
         struct IoliteAllocation* ref;
         IoliteClosure closure; 
     } value;
+    void* methods;
 } IoliteValue;
 
 typedef struct IoliteAllocation {

@@ -27,6 +27,10 @@ typedef struct { MString name; VarIdx argc; VarIdx* argv; VarIdx returned; } Ins
 typedef struct { VarIdx called; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ClosureCall;
 typedef struct { VarIdx value; } Instruction_Return;
 typedef struct { VarIdx value; } Instruction_Assert;
+typedef struct { MString name; uint16_t method_count; MString* method_names; MString* method_function_names; } Instruction_Trait;
+typedef struct { MString name; uint16_t trait_count; MString* trait_names; } Instruction_TraitCollection;
+typedef struct { VarIdx value; MString collection_name; } Instruction_AddTraits;
+typedef struct { VarIdx value; MString method_name; VarIdx* argv; VarIdx returned; } Instruction_MethodCall;
 
 typedef struct { VarIdx condition; struct Instruction* if_body; InstrC if_body_length; struct Instruction* else_body; InstrC else_body_length; } Instruction_If;
 typedef struct { struct Instruction* body; InstrC body_length; } Instruction_Loop;
@@ -67,13 +71,16 @@ typedef struct { VarIdx ref; uint64_t index; VarIdx value; } Instruction_RefSetF
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedAsyncCall;
 typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
+typedef struct { MString name; uint16_t method_count; MString* method_names; Instruction_Function** methods; } Instruction_ResolvedTrait;
+typedef struct { MString name; uint16_t trait_count; Instruction_ResolvedTrait** traits; } Instruction_ResolvedTraitCollection;
+typedef struct { VarIdx value; Instruction_ResolvedTraitCollection* collection; } Instruction_ResolvedAddTraits;
 
 typedef struct { InstrC dest; } Instruction_Jump;
 typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instruction_ConditionalJump;
 
 typedef enum {
     // part of binaries
-    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING, ASSERT,
+    FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING, ASSERT, TRAIT, TRAIT_COLLECTION, ADD_TRAITS, METHOD_CALL,
     RECORD, RECORD_INIT, RECORD_GET, RECORD_SET,
     IF, LOOP, BREAK, CONTINUE,
     COPY,
@@ -83,7 +90,7 @@ typedef enum {
     CONVERT_TO_NAT, CONVERT_TO_INT, CONVERT_TO_FLT,
     MALLOC_DYNAMIC, MALLOC_FIXED, REF_GET_DYNAMIC, REF_GET_FIXED, REF_SET_DYNAMIC, REF_SET_FIXED,
     // not part of binaries
-    RESOLVED_CALL, RESOLVED_ASYNC_CALL, RESOLVED_EXTERNAL_CALL,
+    RESOLVED_CALL, RESOLVED_ASYNC_CALL, RESOLVED_EXTERNAL_CALL, RESOLVED_TRAIT, RESOLVED_TRAIT_COLLECTION, RESOLVED_ADD_TRAITS,
     JUMP, CONDITIONAL_JUMP
 } InstructionType;
 
@@ -95,6 +102,10 @@ typedef union {
     Instruction_ClosureCall closure_call_data;
     Instruction_Return return_data;
     Instruction_Assert assert_data;
+    Instruction_Trait trait_data;
+    Instruction_TraitCollection trait_collection_data;
+    Instruction_AddTraits add_traits_data;
+    Instruction_MethodCall method_call_data;
 
     Instruction_If if_data;
     Instruction_Loop loop_data;
@@ -135,6 +146,9 @@ typedef union {
     Instruction_ResolvedCall resolved_call_data;
     Instruction_ResolvedAsyncCall resolved_async_call_data;
     Instruction_ResolvedExternalCall resolved_external_call_data;
+    Instruction_ResolvedTrait resolved_trait_data;
+    Instruction_ResolvedTraitCollection resolved_trait_collection_data;
+    Instruction_ResolvedAddTraits resolved_add_traits_data;
 
     Instruction_Jump jump_data;
     Instruction_ConditionalJump conditional_jump_data;

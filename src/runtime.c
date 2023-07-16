@@ -1,7 +1,10 @@
 
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
+#include <stdio.h>
 #include "runtime.h"
+#include "vector.h"
 
 
 InstrC calculate_flat_length(Instruction* instructions, InstrC instruction_count) {
@@ -168,21 +171,22 @@ void flatten_combine(Module* modules, size_t module_count, Instruction** instruc
 }
 
 
-void discover_symbols(Instruction* instructions, InstrC instruction_count, Vector* functions) {
+void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
+    // discover functions
+    Vector functions = create_vector(sizeof(Instruction_Function*));
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
             case FUNCTION: {
                 Instruction_Function* function_data = &instruction->data.function_data;
-                vector_push(functions, &function_data);
+                vector_push(&functions, &function_data);
             } break;
 
             default: {}
         }
     }
-}
-
-void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
+    // resolve function usages and discover traits
+    Vector traits = create_vector(sizeof(Instruction_ResolvedTrait*));
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
@@ -197,8 +201,8 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                 }
                 // try to find the function in all loaded functions
                 uint8_t found = 0;
-                for(size_t function_index = 0; function_index < functions->size; function_index += 1) {
-                    Instruction_Function** function = vector_get(functions, function_index);
+                for(size_t function_index = 0; function_index < functions.size; function_index += 1) {
+                    Instruction_Function** function = vector_get(&functions, function_index);
                     if((*function)->name.length == name->length
                     && memcmp((*function)->name.data, name->data, name->length) == 0) {
                         if(instruction->type == CALL) {
@@ -261,7 +265,122 @@ void resolve_symbols(Vector* functions, DLibLoader* l, Instruction* instructions
                 exit(1);
             } break;
 
+            case TRAIT: {
+                Instruction_Trait* data = &instruction->data.trait_data;
+                Instruction_Function** methods = malloc(sizeof(Instruction_Function*) * data->method_count);
+                for(uint16_t method_index = 0; method_index < data->method_count; method_index += 1) {
+                    MString* method_name = &data->method_function_names[method_index];
+                    uint8_t found = 0;
+                    for(size_t function_index = 0; function_index < functions.size; function_index += 1) {
+                        Instruction_Function** function = vector_get(&functions, function_index);
+                        if((*function)->name.length == method_name->length
+                        && memcmp((*function)->name.data, method_name->data, method_name->length) == 0) {
+                            methods[method_index] = *function;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if(found) { continue; }
+                    // still not found? -> error
+                    char* method_name_null_terminated = malloc(method_name->length + 1);
+                    memcpy(method_name_null_terminated, method_name->data, method_name->length);
+                    method_name_null_terminated[method_name->length] = '\0';
+                    printf("No function with the name '%s' could be found in any loaded module.\n", method_name_null_terminated);
+                    free(method_name_null_terminated);
+                    exit(1);
+                }
+
+                *instruction = (Instruction) {
+                    .type = RESOLVED_TRAIT,
+                    .data = { .resolved_trait_data = {
+                        .name = data->name,
+                        .method_count = data->method_count,
+                        .method_names = data->method_names,
+                        .methods = methods,
+                    } }
+                };
+                Instruction_ResolvedTrait* resolved_trait = &instruction->data.resolved_trait_data;
+                vector_push(&traits, &resolved_trait);
+            } break;
+
             default: {}
+        }
+    }
+    // resolve trait usages and discover trait collections
+    Vector trait_collections = create_vector(sizeof(Instruction_ResolvedTraitCollection*));
+    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
+        Instruction* instruction = &instructions[instruction_index];
+        switch(instruction->type) {
+            case TRAIT_COLLECTION: {
+                Instruction_TraitCollection* data = &instruction->data.trait_collection_data;
+                Instruction_ResolvedTrait** trait_pointers = malloc(sizeof(Instruction_Trait*) * data->trait_count);
+                for(uint16_t contained_trait_index = 0; contained_trait_index < data->trait_count; contained_trait_index += 1) {
+                    MString* contained_trait_name = &data->trait_names[contained_trait_index];
+                    uint8_t found = 0;
+                    for(size_t trait_index = 0; trait_index < traits.size; trait_index += 1) {
+                        Instruction_ResolvedTrait** trait = vector_get(&traits, trait_index);
+                        if((*trait)->name.length == contained_trait_name->length
+                        && memcmp((*trait)->name.data, contained_trait_name->data, contained_trait_name->length) == 0) {
+                            trait_pointers[contained_trait_index] = *trait;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if(found) { continue; }
+                    // still not found? -> error
+                    char* contained_trait_name_null_terminated = malloc(contained_trait_name->length + 1);
+                    memcpy(contained_trait_name_null_terminated, contained_trait_name->data, contained_trait_name->length);
+                    contained_trait_name_null_terminated[contained_trait_name->length] = '\0';
+                    printf("No trait with the name '%s' could be found in any loaded module.\n", contained_trait_name_null_terminated);
+                    free(contained_trait_name_null_terminated);
+                    exit(1);
+                }
+                *instruction = (Instruction) {
+                    .type = RESOLVED_TRAIT_COLLECTION,
+                    .data = { .resolved_trait_collection_data = {
+                        .name = data->name,
+                        .trait_count = data->trait_count,
+                        .traits = trait_pointers
+                    } }
+                };
+                Instruction_ResolvedTraitCollection* resolved_trait_collection = &instruction->data.resolved_trait_collection_data;
+                vector_push(&trait_collections, &resolved_trait_collection);
+            } break;
+            
+            default: {}
+        }
+    }
+    // resolve trait collection usages
+    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
+        Instruction* instruction = &instructions[instruction_index];
+        switch(instruction->type) {
+            case ADD_TRAITS: {
+                Instruction_AddTraits* data = &instruction->data.add_traits_data;
+                uint8_t found = 0;
+                for(size_t trait_collection_index = 0; trait_collection_index < trait_collections.size; trait_collection_index += 1) {
+                    Instruction_ResolvedTraitCollection** trait_collection = vector_get(&trait_collections, trait_collection_index);
+                    if((*trait_collection)->name.length == data->collection_name.length
+                        && memcmp((*trait_collection)->name.data, data->collection_name.data, data->collection_name.length) == 0) {
+                            *instruction = (Instruction) {
+                                .type = RESOLVED_ADD_TRAITS,
+                                .data = { .resolved_add_traits_data = {
+                                    .value = data->value,
+                                    .collection = *trait_collection
+                                } }
+                            };
+                            found = 1;
+                            break;
+                        }
+                }
+                if(found) { continue; }
+                // still not found? -> error
+                char* trait_collection_name_null_terminated = malloc(data->collection_name.length + 1);
+                memcpy(trait_collection_name_null_terminated, data->collection_name.data, data->collection_name.length);
+                trait_collection_name_null_terminated[data->collection_name.length] = '\0';
+                printf("No trait collection with the name '%s' could be found in any loaded module.\n", trait_collection_name_null_terminated);
+                free(trait_collection_name_null_terminated);
+                exit(1);
+            } break;
         }
     }
 }
@@ -322,6 +441,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     if(old_frame == NULL) { dest = base_return; }
                     if(return_val->type == REFERENCE) { return_val->value.ref->stack_reference_count += 1; }
                     if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+                    *dest = *return_val;
                 }
                 for(VarIdx var = 0; var < current_frame->size; var += 1) {
                     IoliteValue* val = &current_frame->values[var];
@@ -353,6 +473,59 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     printf("Function condition unmet.\n");
                     exit(1);
                 }
+            } break;
+            case TRAIT: /* nothing to do, traits were replaced by resolved traits */ break;
+            case TRAIT_COLLECTION: /* nothing to do, trait collections were replaced by resolved trait collections */ break;
+            case ADD_TRAITS: /* nothing to do, trait adds were replaced by resolved trait adds */ break;
+            case METHOD_CALL: {
+                Instruction_MethodCall* data = &i->data.method_call_data;
+                IoliteValue* value = &current_frame->values[data->value];
+                Instruction_ResolvedTraitCollection* trait_collection = (Instruction_ResolvedTraitCollection*) value->methods;
+                uint8_t found = 0;
+                for(uint16_t trait_index = 0; trait_index < trait_collection->trait_count; trait_index += 1) {
+                    Instruction_ResolvedTrait* trait = trait_collection->traits[trait_index];
+                    for(uint16_t method_index = 0; method_index < trait->method_count; method_index += 1) {
+                        if(trait->method_names[method_index].length != data->method_name.length) { continue; }
+                        char* scanned_method_name = trait->method_names[method_index].data;
+                        char* target_method_name = data->method_name.data;
+                        uint8_t names_match = 1;
+                        for(uint32_t char_index = 0; char_index < data->method_name.length; char_index += 1) {
+                            if(scanned_method_name[char_index] != target_method_name[char_index]) {
+                                names_match = 0;
+                                break;
+                            }
+                        }
+                        if(!names_match) { continue; }
+                        Instruction_Function* method = trait->methods[method_index];
+                        IoliteAllocation* call_frame = gc_allocate(gc, method->argc + method->varc);
+                        for(VarIdx var_index = 0; var_index < call_frame->size; var_index += 1) {
+                            call_frame->values[var_index].type = UNIT;
+                        }
+                        for(VarIdx arg_index = 0; arg_index < method->argc; arg_index += 1) {
+                            IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
+                            if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
+                            call_frame->values[arg_index] = *arg;
+                        }
+                        vector_push(&frames, &call_frame);
+                        InstrC next_index = current_index + 1;
+                        vector_push(&return_idx, &next_index);
+                        current_index = method->body_instruction_index;
+                        return_val_dest_var = data->returned;
+                        current_frame = call_frame;
+                        found = 1;
+                        break;
+                    }
+                    if(found) { break; }
+                }
+                if(!found) {
+                    char* method_name_null_terminated = malloc(data->method_name.length + 1);
+                    memcpy(method_name_null_terminated, data->method_name.data, data->method_name.length);
+                    method_name_null_terminated[data->method_name.length] = '\0';
+                    printf("No method with the name '%s' could be found on the value.\n", method_name_null_terminated);
+                    free(method_name_null_terminated);
+                    exit(1);
+                }
+                continue;
             } break;
             
             case IF: /* nothing to do, ifs were replaced by conditional jumps */ break;
@@ -659,6 +832,69 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 *dest = (IoliteValue) { .type = FLOAT, .value = { .flt = value } };
             } break;
 
+            case MALLOC_DYNAMIC: case MALLOC_FIXED: {
+                uint64_t size;
+                VarIdx dest;
+                if(i->type == MALLOC_DYNAMIC) {
+                    Instruction_MallocDynamic* data = &i->data.malloc_dynamic_data;
+                    size = current_frame->values[data->size].value.natural;
+                    dest = data->dest;
+                } else {
+                    Instruction_MallocFixed* data = &i->data.malloc_fixed_data;
+                    size = data->size;
+                    dest = data->dest;
+                }
+                IoliteAllocation* allocation = gc_allocate(gc, size);
+                IoliteValue value = { .type = REFERENCE, .value = { .ref = allocation } };
+                IoliteValue* dest_ptr = &current_frame->values[dest];
+                if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
+                *dest_ptr = value;
+            } break;
+            case REF_GET_DYNAMIC: case REF_GET_FIXED: {
+                VarIdx ref;
+                uint64_t index;
+                VarIdx dest;
+                if(i->type == REF_GET_DYNAMIC) {
+                    Instruction_RefGetDynamic* data = &i->data.ref_get_dynamic_data;
+                    ref = data->ref;
+                    index = current_frame->values[data->index].value.natural;
+                    dest = data->dest;
+                } else {
+                    Instruction_RefGetFixed* data = &i->data.ref_get_fixed_data;
+                    ref = data->ref;
+                    index = data->index;
+                    dest = data->dest;
+                }
+                IoliteAllocation* allocation = current_frame->values[ref].value.ref;
+                IoliteValue* value = &allocation->values[index];
+                IoliteValue* dest_ptr = &current_frame->values[dest];
+                if(value->type == REFERENCE) { value->value.ref->stack_reference_count += 1; }
+                if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
+                *dest_ptr = *value;
+            } break;
+            case REF_SET_DYNAMIC: case REF_SET_FIXED: {
+                VarIdx ref;
+                uint64_t index;
+                VarIdx value;
+                if(i->type == REF_SET_DYNAMIC) {
+                    Instruction_RefSetDynamic* data = &i->data.ref_set_dynamic_data;
+                    ref = data->ref;
+                    index = current_frame->values[data->index].value.natural;
+                    value = data->value;
+                } else {
+                    Instruction_RefSetFixed* data = &i->data.ref_set_fixed_data;
+                    ref = data->ref;
+                    index = data->index;
+                    value = data->value;
+                }
+                IoliteAllocation* allocation = current_frame->values[ref].value.ref;
+                IoliteValue* value_ptr = &current_frame->values[value];
+                IoliteValue* dest = &allocation->values[index];
+                if(value_ptr->type == REFERENCE) { value_ptr->value.ref->stack_reference_count += 1; }
+                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
+                *dest = *value_ptr;
+            } break;
+
             case RESOLVED_CALL: {
                 Instruction_ResolvedCall* data = &i->data.resolved_call_data;
                 IoliteAllocation* call_frame = gc_allocate(gc, data->function->argc + data->function->varc);
@@ -721,68 +957,12 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     *returned_dest = return_val;
                 }
             } break;
-
-            case MALLOC_DYNAMIC: case MALLOC_FIXED: {
-                uint64_t size;
-                VarIdx dest;
-                if(i->type == MALLOC_DYNAMIC) {
-                    Instruction_MallocDynamic* data = &i->data.malloc_dynamic_data;
-                    size = current_frame->values[data->size].value.natural;
-                    dest = data->dest;
-                } else {
-                    Instruction_MallocFixed* data = &i->data.malloc_fixed_data;
-                    size = data->size;
-                    dest = data->dest;
-                }
-                IoliteAllocation* allocation = gc_allocate(gc, size);
-                IoliteValue value = { .type = REFERENCE, .value = { .ref = allocation } };
-                IoliteValue* dest_ptr = &current_frame->values[dest];
-                if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
-                *dest_ptr = value;
-            } break;
-            case REF_GET_DYNAMIC: case REF_GET_FIXED: {
-                VarIdx ref;
-                uint64_t index;
-                VarIdx dest;
-                if(i->type == REF_GET_DYNAMIC) {
-                    Instruction_RefGetDynamic* data = &i->data.ref_get_dynamic_data;
-                    ref = data->ref;
-                    index = current_frame->values[data->index].value.natural;
-                    dest = data->dest;
-                } else {
-                    Instruction_RefGetFixed* data = &i->data.ref_get_fixed_data;
-                    ref = data->ref;
-                    index = data->index;
-                    dest = data->dest;
-                }
-                IoliteAllocation* allocation = current_frame->values[ref].value.ref;
-                IoliteValue* value = &allocation->values[index];
-                IoliteValue* dest_ptr = &current_frame->values[dest];
-                if(value->type == REFERENCE) { value->value.ref->stack_reference_count += 1; }
-                if(dest_ptr->type == REFERENCE) { dest_ptr->value.ref->stack_reference_count -= 1; }
-                *dest_ptr = *value;
-            } break;
-            case REF_SET_DYNAMIC: case REF_SET_FIXED: {
-                VarIdx ref;
-                uint64_t index;
-                VarIdx value;
-                if(i->type == REF_SET_DYNAMIC) {
-                    Instruction_RefSetDynamic* data = &i->data.ref_set_dynamic_data;
-                    ref = data->ref;
-                    index = current_frame->values[data->index].value.natural;
-                    value = data->value;
-                } else {
-                    Instruction_RefSetFixed* data = &i->data.ref_set_fixed_data;
-                    ref = data->ref;
-                    index = data->index;
-                    value = data->value;
-                }
-                IoliteAllocation* allocation = current_frame->values[ref].value.ref;
-                IoliteValue* value_ptr = &current_frame->values[value];
-                IoliteValue* dest = &allocation->values[index];
-                if(value_ptr->type == REFERENCE) { value_ptr->value.ref->stack_reference_count += 1; }
-                if(dest->type == REFERENCE) { dest->value.ref->stack_reference_count -= 1; }
-                *dest = *value_ptr;
+            case RESOLVED_TRAIT: /* nothing to do, traits have already been loaded */ break;
+            case RESOLVED_TRAIT_COLLECTION: /* nothing to do, trait collections have already been loaded */ break;
+            case RESOLVED_ADD_TRAITS: {
+                Instruction_ResolvedAddTraits* data = &i->data.resolved_add_traits_data;
+                IoliteValue* value = &current_frame->values[data->value];
+                value->methods = data->collection;
             } break;
 
             case JUMP: {

@@ -46,17 +46,7 @@ int main() {
     test.body_length = 6;
     */
 
-    // Iolite source code approximation
     /*
-        fun println_flt(float x) ext
-
-        fun main(): 3.14 < 6.28
-            fun() var0 = () ->
-                f32 var1 = 6.28
-                prirntln_flt(var1)
-            (var0)()
-    */
-
     MString main_s = (MString) { .length = 4, .data = "main" };
     MString println_flt_s = (MString) { .length = 11, .data = "println_flt" };
     Module test;
@@ -87,16 +77,65 @@ int main() {
         { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },
     };
     test.body_length = 2;
+    */
 
-    // flatten and combine all the modules into one long array of instructions
+    // Equivalent Iolite code
+    /*
+        fun println_flt(float x) ext
+
+        trait Addable
+            add(self other) -> self
+        
+        impl float: Addable
+            add(self other) -> self
+                self + other
+
+        pub fun main()
+            float var0 = 3.14
+            float var1 = 3.14
+            float var2 = var0.add(var1)
+            println_flt(var2)
+    */
+    MString main_s = (MString) { .length = 4, .data = "main" };
+    MString println_flt_s = (MString) { .length = 11, .data = "println_flt" };
+    MString add_s = (MString) { .length = 3, .data = "add" };
+    MString addable_s = (MString) { .length = 7, .data = "addable" };
+    MString flt_col_s = (MString) { .length = 7, .data = "flt$col" };
+    Module test;
+    test.body = (Instruction[]) {
+        { .type = FUNCTION, .data = { .function_data = {
+            .name = add_s, .argc = 2, .varc = 1,
+            .condition_count = 0, .conditions = (Instruction*[]) { (Instruction[]) {0} }, .condition_lengths = (InstrC[]) {0}, .body = (Instruction[]) {
+
+            { .type = ADD, .data = { .add_data = { .a = 0, .b = 1, .dest = 2 } } },
+            { .type = RETURN, .data = { .return_data = { .value = 2 } } }
+
+        }, .body_length = 2 } } },
+        { .type = TRAIT, .data = { .trait_data = { .name = addable_s, .method_count = 1, .method_names = (MString[]) { add_s }, .method_function_names = (MString[]) { add_s } } } },
+        { .type = TRAIT_COLLECTION, .data = { .trait_collection_data = { .name = flt_col_s, .trait_count = 1, .trait_names = (MString[]) { addable_s } } } },
+
+        { .type = FUNCTION, .data = { .function_data = {
+                .name = main_s, .argc = 0, .varc = 3,
+                .condition_count = 0, .conditions = (Instruction*[]) { (Instruction[]) {0} }, .condition_lengths = (InstrC[]) {0}, .body = (Instruction[]) {
+
+            { .type = PUT_FLT, .data = { .put_flt_data = { .value = 3.14, .dest = 0 } } },
+            { .type = ADD_TRAITS, .data = { .add_traits_data = { .value = 0, .collection_name = flt_col_s } } },
+            { .type = PUT_FLT, .data = { .put_flt_data = { .value = 3.14, .dest = 1 } } },
+            { .type = METHOD_CALL, .data = { .method_call_data = { .value = 0, .method_name = add_s, .argv = (VarIdx[]) { 0, 1 }, .returned = 2 } } },
+            { .type = EXTERNAL_CALL, .data = { .external_call_data = { .name = println_flt_s, .argc = 1, .argv = (VarIdx[]) { 2 }, .returned = 0 } } },
+            { .type = RETURN_NOTHING }
+        
+        }, .body_length = 6 } } },
+
+        { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },
+    };
+    test.body_length = 5;
+
+    // flatten and combine all the modules into one long array of instructions, resolve all symbols
     Instruction* instructions;
     InstrC instruction_count;
     flatten_combine((Module[]) { test }, 1, &instructions, &instruction_count);
-
-    // discover all symbols and resolve them
-    Vector functions = create_vector(sizeof(Instruction_Function*));
-    discover_symbols(instructions, instruction_count, &functions);
-    resolve_symbols(&functions, &dlibs, instructions, instruction_count);
+    resolve_symbols(&dlibs, instructions, instruction_count);
 
     // create a garbage collector and garbage collector
     GC gc = create_gc();
