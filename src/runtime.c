@@ -171,9 +171,18 @@ void flatten_combine(Module* modules, size_t module_count, Instruction** instruc
 }
 
 
+char* as_null_terminated(char* src, size_t length) {
+    char* null_terminated = malloc(length + 1);
+    memcpy(null_terminated, src, length);
+    null_terminated[length] = '\0';
+    return null_terminated;
+}
+
+
 void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
-    // discover functions
+    // discover functions and traits
     Vector functions = create_vector(sizeof(Instruction_Function*));
+    Vector traits = create_vector(sizeof(Instruction_Trait*));
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
@@ -181,12 +190,17 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 Instruction_Function* function_data = &instruction->data.function_data;
                 vector_push(&functions, &function_data);
             } break;
+            case TRAIT: {
+                Instruction_Trait* trait_data = &instruction->data.trait_data;
+                trait_data->trait_id = traits.size;
+                vector_push(&traits, &trait_data);
+            }
 
             default: {}
         }
     }
-    // resolve function usages and discover traits
-    Vector traits = create_vector(sizeof(Instruction_ResolvedTrait*));
+    // resolve function and trait usages and discover implements
+    Vector implements = create_vector(sizeof(Instruction_ResolvedImplements*));
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
@@ -205,6 +219,7 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                     Instruction_Function** function = vector_get(&functions, function_index);
                     if((*function)->name.length == name->length
                     && memcmp((*function)->name.data, name->data, name->length) == 0) {
+                        // replace with resolved
                         if(instruction->type == CALL) {
                             Instruction_Call* data = &instruction->data.call_data;
                             *instruction = (Instruction) {
@@ -232,9 +247,7 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 }
                 if(found) { continue; }
                 // still not found? -> error
-                char* name_null_terminated = malloc(name->length + 1);
-                memcpy(name_null_terminated, name->data, name->length);
-                name_null_terminated[name->length] = '\0';
+                char* name_null_terminated = as_null_terminated(name->data, name->length);
                 printf("No function with the name '%s' could be found in any loaded module.\n", name_null_terminated);
                 free(name_null_terminated);
                 exit(1);
@@ -242,11 +255,10 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
             case EXTERNAL_CALL: {
                 Instruction_ExternalCall* data = &instruction->data.external_call_data;
                 // try to find the function in all loaded shared libraries
-                char* name_null_terminated = malloc(data->name.length + 1);
-                memcpy(name_null_terminated, data->name.data, data->name.length);
-                name_null_terminated[data->name.length] = '\0';
+                char* name_null_terminated = as_null_terminated(data->name.data, data->name.length);
                 void* external_function = dlibs_find(l, name_null_terminated);
                 if(external_function != NULL) {
+                    // replace with resolved
                     *instruction = (Instruction) {
                         .type = RESOLVED_EXTERNAL_CALL,
                         .data = { .resolved_external_call_data = {
@@ -265,124 +277,161 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 exit(1);
             } break;
 
-            case TRAIT: {
-                Instruction_Trait* data = &instruction->data.trait_data;
-                Instruction_Function** methods = malloc(sizeof(Instruction_Function*) * data->method_count);
-                for(uint16_t method_index = 0; method_index < data->method_count; method_index += 1) {
-                    MString* method_name = &data->method_function_names[method_index];
-                    uint8_t found = 0;
-                    for(size_t function_index = 0; function_index < functions.size; function_index += 1) {
-                        Instruction_Function** function = vector_get(&functions, function_index);
-                        if((*function)->name.length == method_name->length
-                        && memcmp((*function)->name.data, method_name->data, method_name->length) == 0) {
-                            methods[method_index] = *function;
-                            found = 1;
-                            break;
-                        }
-                    }
-                    if(found) { continue; }
-                    // still not found? -> error
-                    char* method_name_null_terminated = malloc(method_name->length + 1);
-                    memcpy(method_name_null_terminated, method_name->data, method_name->length);
-                    method_name_null_terminated[method_name->length] = '\0';
-                    printf("No function with the name '%s' could be found in any loaded module.\n", method_name_null_terminated);
-                    free(method_name_null_terminated);
-                    exit(1);
-                }
-
-                *instruction = (Instruction) {
-                    .type = RESOLVED_TRAIT,
-                    .data = { .resolved_trait_data = {
-                        .name = data->name,
-                        .method_count = data->method_count,
-                        .method_names = data->method_names,
-                        .methods = methods,
-                    } }
-                };
-                Instruction_ResolvedTrait* resolved_trait = &instruction->data.resolved_trait_data;
-                vector_push(&traits, &resolved_trait);
-            } break;
-
-            default: {}
-        }
-    }
-    // resolve trait usages and discover trait collections
-    Vector trait_collections = create_vector(sizeof(Instruction_ResolvedTraitCollection*));
-    for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
-        Instruction* instruction = &instructions[instruction_index];
-        switch(instruction->type) {
-            case TRAIT_COLLECTION: {
-                Instruction_TraitCollection* data = &instruction->data.trait_collection_data;
-                Instruction_ResolvedTrait** trait_pointers = malloc(sizeof(Instruction_Trait*) * data->trait_count);
+            case IMPLEMENTS: {
+                Instruction_Implements* data = &instruction->data.implements_data;
+                Instruction_Trait** contained_trait_pointers = malloc(sizeof(Instruction_Trait*) * data->trait_count);
+                Instruction_Function*** contained_method_impl_pointers = malloc(sizeof(Instruction_Function**) * data->trait_count);
+                // find all implemented traits
                 for(uint16_t contained_trait_index = 0; contained_trait_index < data->trait_count; contained_trait_index += 1) {
                     MString* contained_trait_name = &data->trait_names[contained_trait_index];
-                    uint8_t found = 0;
-                    for(size_t trait_index = 0; trait_index < traits.size; trait_index += 1) {
-                        Instruction_ResolvedTrait** trait = vector_get(&traits, trait_index);
-                        if((*trait)->name.length == contained_trait_name->length
-                        && memcmp((*trait)->name.data, contained_trait_name->data, contained_trait_name->length) == 0) {
-                            trait_pointers[contained_trait_index] = *trait;
-                            found = 1;
-                            break;
+                    uint8_t trait_found = 0;
+                    // try to find the contained trait
+                    for(size_t loaded_trait_index = 0; loaded_trait_index < traits.size; loaded_trait_index += 1) {
+                        Instruction_Trait* loaded_trait = *((Instruction_Trait**) vector_get(&traits, loaded_trait_index));
+                        if(contained_trait_name->length != loaded_trait->name.length
+                        || memcmp(loaded_trait->name.data, contained_trait_name->data, contained_trait_name->length) != 0) { continue; }
+                        // found!
+                        contained_trait_pointers[contained_trait_index] = loaded_trait;
+                        Instruction_Function** trait_method_impl_pointers = malloc(sizeof(Instruction_Function*) * loaded_trait->method_count);
+                        contained_method_impl_pointers[contained_trait_index] = trait_method_impl_pointers;
+                        // find all method implementations
+                        for(size_t contained_function_index = 0; contained_function_index < loaded_trait->method_count; contained_function_index += 1) {
+                            MString* contained_impl_function_name = data->trait_impl_function_names[contained_function_index];
+                            uint8_t function_found = 0;
+                            // try to find the implementation function
+                            for(size_t loaded_function_index = 0; loaded_function_index < functions.size; loaded_function_index += 1) {
+                                Instruction_Function* loaded_function = *((Instruction_Function**) vector_get(&functions, loaded_function_index));
+                                if(contained_impl_function_name->length != loaded_function->name.length
+                                || memcmp(loaded_function->name.data, contained_impl_function_name->data, contained_impl_function_name->length) != 0) { continue; }
+                                // found!
+                                trait_method_impl_pointers[contained_function_index] = loaded_function;
+
+                                function_found = 1;
+                                break;
+                            }
+                            if(function_found) { continue; }
+                            // not found? -> error
+                            char* contained_impl_function_name_null_terminated = as_null_terminated(contained_impl_function_name->data, contained_impl_function_name->length);
+                            printf("No function with the name '%s' could be found in any loaded module.\n", contained_impl_function_name_null_terminated);
+                            free(contained_impl_function_name_null_terminated);
+                            exit(1);
                         }
+                        trait_found = 1;
+                        break; 
                     }
-                    if(found) { continue; }
-                    // still not found? -> error
-                    char* contained_trait_name_null_terminated = malloc(contained_trait_name->length + 1);
-                    memcpy(contained_trait_name_null_terminated, contained_trait_name->data, contained_trait_name->length);
-                    contained_trait_name_null_terminated[contained_trait_name->length] = '\0';
-                    printf("No trait with the name '%s' could be found in any loaded module.\n", contained_trait_name_null_terminated);
-                    free(contained_trait_name_null_terminated);
-                    exit(1);
+                    // not found? -> error
+                    if(!trait_found) {
+                        char* contained_trait_name_null_terminated = as_null_terminated(contained_trait_name->data, contained_trait_name->length);
+                        printf("No trait with the name '%s' could be found in any loaded module.\n", contained_trait_name_null_terminated);
+                        free(contained_trait_name_null_terminated);
+                        exit(1);
+                    }
+                    // replace with resolved
+                    *instruction = (Instruction) {
+                        .type = RESOLVED_IMPLEMENTS,
+                        .data = { .resolved_implements_data = {
+                            .name = data->name,
+                            .trait_count = data->trait_count,
+                            .traits = contained_trait_pointers,
+                            .trait_impl_functions = contained_method_impl_pointers
+                        } }
+                    };
+                    Instruction_ResolvedImplements* resolved_implements_data = &instruction->data.resolved_implements_data;
+                    vector_push(&implements, &resolved_implements_data);
                 }
-                *instruction = (Instruction) {
-                    .type = RESOLVED_TRAIT_COLLECTION,
-                    .data = { .resolved_trait_collection_data = {
-                        .name = data->name,
-                        .trait_count = data->trait_count,
-                        .traits = trait_pointers
-                    } }
-                };
-                Instruction_ResolvedTraitCollection* resolved_trait_collection = &instruction->data.resolved_trait_collection_data;
-                vector_push(&trait_collections, &resolved_trait_collection);
             } break;
-            
+            case METHOD_CALL: {
+                Instruction_MethodCall* data = &instruction->data.method_call_data;
+                // try to find the trait
+                uint8_t trait_found = 0;
+                for(size_t loaded_trait_index = 0; loaded_trait_index < traits.size; loaded_trait_index += 1) {
+                    Instruction_Trait* loaded_trait = *((Instruction_Trait**) vector_get(&traits, loaded_trait_index));
+                    if(data->trait_name.length != loaded_trait->name.length
+                    || memcmp(loaded_trait->name.data, data->trait_name.data, data->trait_name.length) != 0) { continue; }
+                    // found!
+                    // try to find the index of the method
+                    uint8_t method_found = 0;
+                    for(uint16_t method_index = 0; method_index < loaded_trait->method_count; method_index += 1) {
+                        MString* searched_method_name = &loaded_trait->method_names[method_index];
+                        if(data->method_name.length != searched_method_name->length
+                        || memcmp(searched_method_name->data, data->method_name.data, data->method_name.length) != 0) { continue; }
+                        // found!
+                        // replace with resolved
+                        *instruction = (Instruction) {
+                            .type = RESOLVED_METHOD_CALL,
+                            .data = { .resolved_method_call_data = {
+                                .value = data->value,
+                                .trait_id = loaded_trait->trait_id,
+                                .method_index = method_index,
+                                .argv = data->argv,
+                                .returned = data->returned
+                            } }
+                        };
+                        method_found = 1;
+                        break;
+                    }
+                    // not found? -> error
+                    if(!method_found) {
+                        char* trait_name_null_terminated = as_null_terminated(data->trait_name.data, data->trait_name.length);
+                        char* method_name_null_terminated = as_null_terminated(data->method_name.data, data->method_name.length);
+                        printf("The trait '%s' has no method '%s'.\n", trait_name_null_terminated, method_name_null_terminated);
+                        free(trait_name_null_terminated);
+                        free(method_name_null_terminated);
+                        exit(1);
+                    }
+                    trait_found = 1;
+                    break; 
+                }
+                if(trait_found) { continue; }
+                // not found? -> error
+                char* trait_name_null_terminated = as_null_terminated(data->trait_name.data, data->trait_name.length);
+                printf("No trait with the name '%s' could be found in any loaded module.\n", trait_name_null_terminated);
+                free(trait_name_null_terminated);
+                exit(1);
+            } break;
+
             default: {}
         }
     }
-    // resolve trait collection usages
+    // resolve implements usage
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
-            case ADD_TRAITS: {
-                Instruction_AddTraits* data = &instruction->data.add_traits_data;
+            case ADD_IMPLEMENTS: {
+                Instruction_AddImplements* data = &instruction->data.add_implements_data;
+                // try to find the implements
                 uint8_t found = 0;
-                for(size_t trait_collection_index = 0; trait_collection_index < trait_collections.size; trait_collection_index += 1) {
-                    Instruction_ResolvedTraitCollection** trait_collection = vector_get(&trait_collections, trait_collection_index);
-                    if((*trait_collection)->name.length == data->collection_name.length
-                        && memcmp((*trait_collection)->name.data, data->collection_name.data, data->collection_name.length) == 0) {
-                            *instruction = (Instruction) {
-                                .type = RESOLVED_ADD_TRAITS,
-                                .data = { .resolved_add_traits_data = {
-                                    .value = data->value,
-                                    .collection = *trait_collection
-                                } }
-                            };
-                            found = 1;
-                            break;
-                        }
+                for(size_t loaded_implements_index = 0; loaded_implements_index < implements.size; loaded_implements_index += 1) {
+                    Instruction_ResolvedImplements* loaded_implements = *((Instruction_ResolvedImplements**) vector_get(&implements, loaded_implements_index));
+                    if(data->impl_name.length != loaded_implements->name.length
+                    || memcmp(loaded_implements->name.data, data->impl_name.data, data->impl_name.length) != 0) { continue; }
+                    // found!
+                    // replace with resolved
+                    *instruction = (Instruction) {
+                        .type = RESOLVED_ADD_IMPLEMENTS,
+                        .data = { .resolved_add_implements_data = {
+                            .impl = loaded_implements,
+                            .value = data->value
+                        } }
+                    };
+                    found = 1;
+                    break;
                 }
                 if(found) { continue; }
-                // still not found? -> error
-                char* trait_collection_name_null_terminated = malloc(data->collection_name.length + 1);
-                memcpy(trait_collection_name_null_terminated, data->collection_name.data, data->collection_name.length);
-                trait_collection_name_null_terminated[data->collection_name.length] = '\0';
-                printf("No trait collection with the name '%s' could be found in any loaded module.\n", trait_collection_name_null_terminated);
-                free(trait_collection_name_null_terminated);
+                // not found? -> error
+                char* implements_name_null_terminated = as_null_terminated(data->impl_name.data, data->impl_name.length);
+                printf("No implementations with the name '%s' could be found in any loaded module.\n", implements_name_null_terminated);
+                free(implements_name_null_terminated);
                 exit(1);
             } break;
+
+            default: {}
         }
     }
+    // clean up
+    vector_cleanup(&functions);
+    vector_cleanup(&traits);
+    vector_cleanup(&implements);
 }
 
 
@@ -474,59 +523,10 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     exit(1);
                 }
             } break;
-            case TRAIT: /* nothing to do, traits were replaced by resolved traits */ break;
-            case TRAIT_COLLECTION: /* nothing to do, trait collections were replaced by resolved trait collections */ break;
-            case ADD_TRAITS: /* nothing to do, trait adds were replaced by resolved trait adds */ break;
-            case METHOD_CALL: {
-                Instruction_MethodCall* data = &i->data.method_call_data;
-                IoliteValue* value = &current_frame->values[data->value];
-                Instruction_ResolvedTraitCollection* trait_collection = (Instruction_ResolvedTraitCollection*) value->methods;
-                uint8_t found = 0;
-                for(uint16_t trait_index = 0; trait_index < trait_collection->trait_count; trait_index += 1) {
-                    Instruction_ResolvedTrait* trait = trait_collection->traits[trait_index];
-                    for(uint16_t method_index = 0; method_index < trait->method_count; method_index += 1) {
-                        if(trait->method_names[method_index].length != data->method_name.length) { continue; }
-                        char* scanned_method_name = trait->method_names[method_index].data;
-                        char* target_method_name = data->method_name.data;
-                        uint8_t names_match = 1;
-                        for(uint32_t char_index = 0; char_index < data->method_name.length; char_index += 1) {
-                            if(scanned_method_name[char_index] != target_method_name[char_index]) {
-                                names_match = 0;
-                                break;
-                            }
-                        }
-                        if(!names_match) { continue; }
-                        Instruction_Function* method = trait->methods[method_index];
-                        IoliteAllocation* call_frame = gc_allocate(gc, method->argc + method->varc);
-                        for(VarIdx var_index = 0; var_index < call_frame->size; var_index += 1) {
-                            call_frame->values[var_index].type = UNIT;
-                        }
-                        for(VarIdx arg_index = 0; arg_index < method->argc; arg_index += 1) {
-                            IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
-                            if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
-                            call_frame->values[arg_index] = *arg;
-                        }
-                        vector_push(&frames, &call_frame);
-                        InstrC next_index = current_index + 1;
-                        vector_push(&return_idx, &next_index);
-                        current_index = method->body_instruction_index;
-                        return_val_dest_var = data->returned;
-                        current_frame = call_frame;
-                        found = 1;
-                        break;
-                    }
-                    if(found) { break; }
-                }
-                if(!found) {
-                    char* method_name_null_terminated = malloc(data->method_name.length + 1);
-                    memcpy(method_name_null_terminated, data->method_name.data, data->method_name.length);
-                    method_name_null_terminated[data->method_name.length] = '\0';
-                    printf("No method with the name '%s' could be found on the value.\n", method_name_null_terminated);
-                    free(method_name_null_terminated);
-                    exit(1);
-                }
-                continue;
-            } break;
+            case TRAIT: /* nothing to do, traits have already been loaded */ break;
+            case IMPLEMENTS: /* implements should be resolved, we shouldn't ever encounter this instruction */ break;
+            case ADD_IMPLEMENTS: /* implements add should be resolved, we shouldn't ever encounter this instruction */ break;
+            case METHOD_CALL: /* method calls should be resolved, we shouldn't ever encounter this instruction */ break;
             
             case IF: /* nothing to do, ifs were replaced by conditional jumps */ break;
             case LOOP: /* nothing to do, loops were replaced by jumps */ break;
@@ -957,12 +957,40 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     *returned_dest = return_val;
                 }
             } break;
-            case RESOLVED_TRAIT: /* nothing to do, traits have already been loaded */ break;
-            case RESOLVED_TRAIT_COLLECTION: /* nothing to do, trait collections have already been loaded */ break;
-            case RESOLVED_ADD_TRAITS: {
-                Instruction_ResolvedAddTraits* data = &i->data.resolved_add_traits_data;
+            case RESOLVED_IMPLEMENTS: /* nothing to do, implements have already been loaded */ break;
+            case RESOLVED_ADD_IMPLEMENTS: {
+                Instruction_ResolvedAddImplements* data = &i->data.resolved_add_implements_data;
                 IoliteValue* value = &current_frame->values[data->value];
-                value->methods = data->collection;
+                value->methods = data->impl;
+            } break;
+            case RESOLVED_METHOD_CALL: {
+                Instruction_ResolvedMethodCall* data = &i->data.resolved_method_call_data;
+                IoliteValue* value = &current_frame->values[data->value];
+                Instruction_ResolvedImplements* methods = (Instruction_ResolvedImplements*) value->methods;
+                for(uint16_t trait_index = 0; trait_index < methods->trait_count; trait_index += 1) {
+                    Instruction_Trait* trait = methods->traits[trait_index];
+                    if(trait->trait_id != data->trait_id) { continue; }
+                    Instruction_Function* method_impl = methods->trait_impl_functions[trait_index][data->method_index];
+
+                    IoliteAllocation* call_frame = gc_allocate(gc, method_impl->argc + method_impl->varc);
+                    for(VarIdx var_index = 0; var_index < call_frame->size; var_index += 1) {
+                        call_frame->values[var_index].type = UNIT;
+                    }
+                    for(VarIdx arg_index = 0; arg_index < method_impl->argc; arg_index += 1) {
+                        IoliteValue* arg = &current_frame->values[data->argv[arg_index]];
+                        if(arg->type == REFERENCE) { arg->value.ref->stack_reference_count += 1; }
+                        call_frame->values[arg_index] = *arg;
+                    }
+                    vector_push(&frames, &call_frame);
+                    InstrC next_index = current_index + 1;
+                    vector_push(&return_idx, &next_index);
+                    current_index = method_impl->body_instruction_index;
+                    return_val_dest_var = data->returned;
+                    current_frame = call_frame;
+
+                    break;
+                }
+                continue;
             } break;
 
             case JUMP: {
