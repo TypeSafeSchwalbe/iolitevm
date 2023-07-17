@@ -96,6 +96,7 @@ int main() {
             float var2 = var0.add(var1)
             println_flt(var2)
     */
+    /*
     MString main_s = (MString) { .length = 4, .data = "main" };
     MString println_flt_s = (MString) { .length = 11, .data = "println_flt" };
     MString add_s = (MString) { .length = 3, .data = "add" };
@@ -130,6 +131,9 @@ int main() {
         { .type = CALL, .data = { .call_data = { .name = main_s, .argv = (VarIdx[]) {0}, .returned = 0 } } },
     };
     test.body_length = 5;
+    */
+
+    Module test = create_module("test.iob");
 
     // flatten and combine all the modules into one long array of instructions, resolve all symbols
     Instruction* instructions;

@@ -35,7 +35,7 @@ typedef struct { VarIdx value; MString trait_name; MString method_name; VarIdx* 
 typedef struct { VarIdx condition; struct Instruction* if_body; InstrC if_body_length; struct Instruction* else_body; InstrC else_body_length; } Instruction_If;
 typedef struct { struct Instruction* body; InstrC body_length; } Instruction_Loop;
 
-typedef struct { uint8_t src; uint8_t dest; } Instruction_Copy;
+typedef struct { VarIdx src; VarIdx dest; } Instruction_Copy;
 
 typedef struct { uint64_t value; VarIdx dest; } Instruction_PutNat;
 typedef struct { int64_t value; VarIdx dest; } Instruction_PutInt;
@@ -164,3 +164,6 @@ typedef struct {
     Instruction* body;
     InstrC body_length;
 } Module;
+
+
+Module create_module(char* filename);
