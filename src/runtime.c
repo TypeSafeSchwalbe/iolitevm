@@ -270,6 +270,7 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                     *instruction = (Instruction) {
                         .type = RESOLVED_EXTERNAL_CALL,
                         .data = { .resolved_external_call_data = {
+                            .name = data->name,
                             .function = external_function,
                             .argc = data->argc,
                             .argv = data->argv,
@@ -373,8 +374,11 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                                 .value = data->value,
                                 .trait_id = loaded_trait->trait_id,
                                 .method_index = method_index,
+                                .argc = data->argc,
                                 .argv = data->argv,
-                                .returned = data->returned
+                                .returned = data->returned,
+                                .trait_name = data->trait_name,
+                                .method_name = data->method_name
                             } }
                         };
                         method_found = 1;
@@ -455,13 +459,19 @@ void async_execute(void* args) {
     IoliteAllocation* base_frame = (IoliteAllocation*) ((void**) args)[4];
     IoliteValue* base_return = (IoliteValue*) ((void**) args)[5];
     InstrC current_index = (InstrC) ((void**) args)[6];
-    execute(gc, tp, instructions, instruction_count, base_frame, base_return, current_index);
+    MString* current_call_name = (MString*) ((void**) args)[7];
+    execute(gc, tp, instructions, instruction_count, base_frame, base_return, current_index, current_call_name);
     free(args);
 }
 
-void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index) {
+static MString CLOSURE_NAME = (MString) { .length = 9, .data = "<closure>" };
+
+void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instruction_count, IoliteAllocation* base_frame, IoliteValue* base_return, InstrC current_index, MString* current_call_name) {
+    Vector call_history = create_vector(sizeof(CallInfo));
+    CallInfo base_call = (CallInfo) { .index = current_index, .name = current_call_name };
+    vector_push(&call_history, &base_call);
     Vector frames = create_vector(sizeof(IoliteAllocation*));
-    vector_push(&frames, base_frame);
+    vector_push(&frames, &base_frame);
     Vector return_idx = create_vector(sizeof(InstrC));
     IoliteAllocation* current_frame = base_frame;
     VarIdx return_val_dest_var = 0;
@@ -485,6 +495,8 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 }
                 closure->frame->stack_reference_count += 1;
                 vector_push(&frames, &closure->frame);
+                CallInfo call_info = (CallInfo) { .index = closure->instruction_index, .name = &CLOSURE_NAME };
+                vector_push(&call_history, &call_info);
                 InstrC next_index = current_index + 1;
                 vector_push(&return_idx, &next_index);
                 current_index = closure->instruction_index;
@@ -517,6 +529,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 InstrC* new_index = vector_get(&return_idx, return_idx.size - 1);
                 current_index = *new_index;
                 vector_pop(&return_idx);
+                vector_pop(&call_history);
                 continue;
             } break;
             case ASSERT: {
@@ -531,8 +544,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     case UNIT: case CLOSURE: {}
                 }
                 if(!condition_met) {
-                    printf("Function condition unmet.\n");
-                    exit(1);
+                    break_down(gc, &call_history, &frames, instructions, current_index, "assertion failed");
                 }
             } break;
             case TRAIT: /* nothing to do, traits have already been loaded */ break;
@@ -748,6 +760,9 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 Instruction_Divide* data = &i->data.divide_data;
                 IoliteValue* a = &current_frame->values[data->a];
                 IoliteValue* b = &current_frame->values[data->b];
+                if((b->type == NATURAL && b->value.natural == 0) || (b->type == INTEGER && b->value.integer == 0)) {
+                    break_down(gc, &call_history, &frames, instructions, current_index, "integer division by zero");
+                }
                 IoliteValue* result = &current_frame->values[data->dest];
                 if(result->type == REFERENCE) { result->value.ref->stack_reference_count -= 1; }
                 switch(a->type) {
@@ -863,21 +878,23 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 *dest_ptr = value;
             } break;
             case REF_GET_DYNAMIC: case REF_GET_FIXED: {
-                VarIdx ref;
+                IoliteAllocation* allocation;
                 uint64_t index;
                 VarIdx dest;
                 if(i->type == REF_GET_DYNAMIC) {
                     Instruction_RefGetDynamic* data = &i->data.ref_get_dynamic_data;
-                    ref = data->ref;
+                    allocation = current_frame->values[data->ref].value.ref;
                     index = current_frame->values[data->index].value.natural;
+                    if(index >= allocation->size) {
+                        break_down(gc, &call_history, &frames, instructions, current_index, "index out of bounds");
+                    }
                     dest = data->dest;
                 } else {
                     Instruction_RefGetFixed* data = &i->data.ref_get_fixed_data;
-                    ref = data->ref;
+                    allocation = current_frame->values[data->ref].value.ref;
                     index = data->index;
                     dest = data->dest;
                 }
-                IoliteAllocation* allocation = current_frame->values[ref].value.ref;
                 IoliteValue* value = &allocation->values[index];
                 IoliteValue* dest_ptr = &current_frame->values[dest];
                 if(value->type == REFERENCE) { value->value.ref->stack_reference_count += 1; }
@@ -885,17 +902,20 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 *dest_ptr = *value;
             } break;
             case REF_SET_DYNAMIC: case REF_SET_FIXED: {
-                VarIdx ref;
+                IoliteAllocation* allocation;
                 uint64_t index;
                 VarIdx value;
                 if(i->type == REF_SET_DYNAMIC) {
                     Instruction_RefSetDynamic* data = &i->data.ref_set_dynamic_data;
-                    ref = data->ref;
+                    allocation = current_frame->values[data->ref].value.ref;
                     index = current_frame->values[data->index].value.natural;
+                    if(index >= allocation->size) {
+                        break_down(gc, &call_history, &frames, instructions, current_index, "index out of bounds");
+                    }
                     value = data->value;
                 } else {
                     Instruction_RefSetFixed* data = &i->data.ref_set_fixed_data;
-                    ref = data->ref;
+                    allocation = current_frame->values[data->ref].value.ref;
                     index = data->index;
                     value = data->value;
                 }
@@ -919,6 +939,8 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                     call_frame->values[arg_index] = *arg;
                 }
                 vector_push(&frames, &call_frame);
+                CallInfo call_info = (CallInfo) { .index = data->function->body_instruction_index, .name = &data->function->name };
+                vector_push(&call_history, &call_info);
                 InstrC next_index = current_index + 1;
                 vector_push(&return_idx, &next_index);
                 current_index = data->function->body_instruction_index;
@@ -942,7 +964,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 IoliteAllocation* return_value_holder = gc_allocate(gc, 2);
                 *dest = (IoliteValue) { .type = REFERENCE, .value = { .ref = return_value_holder } };
                 return_value_holder->values[0] = (IoliteValue) { .type = REFERENCE, .value = { .ref = NULL } };
-                void** args = malloc(sizeof(void*) * 7);
+                void** args = malloc(sizeof(void*) * 8);
                 args[0] = gc;
                 args[1] = tp;
                 args[2] = instructions;
@@ -950,6 +972,7 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                 args[4] = call_frame;
                 args[5] = &return_value_holder->values[0];
                 args[6] = (void*) data->function->body_instruction_index;
+                args[7] = &data->function->name;
                 return_value_holder->values[1] = (IoliteValue) { .type = NATURAL, .value = {
                     .natural = threadpool_do(tp, &async_execute, args)
                 } };
@@ -994,6 +1017,8 @@ void execute(GC* gc, ThreadPool* tp, Instruction* instructions, InstrC instructi
                         call_frame->values[arg_index] = *arg;
                     }
                     vector_push(&frames, &call_frame);
+                    CallInfo call_info = (CallInfo) { .index = method_impl->body_instruction_index, .name = &method_impl->name };
+                    vector_push(&call_history, &call_info);
                     InstrC next_index = current_index + 1;
                     vector_push(&return_idx, &next_index);
                     current_index = method_impl->body_instruction_index;

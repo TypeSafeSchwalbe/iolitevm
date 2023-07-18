@@ -30,7 +30,7 @@ typedef struct { VarIdx value; } Instruction_Assert;
 typedef struct { MString name; uint16_t method_count; MString* method_names; uint32_t trait_id; } Instruction_Trait;
 typedef struct { MString name; uint16_t trait_count; MString* trait_names; MString** trait_impl_function_names; } Instruction_Implements;
 typedef struct { VarIdx value; MString impl_name; } Instruction_AddImplements;
-typedef struct { VarIdx value; MString trait_name; MString method_name; VarIdx* argv; VarIdx returned; } Instruction_MethodCall;
+typedef struct { VarIdx value; MString trait_name; MString method_name; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_MethodCall;
 
 typedef struct { VarIdx condition; struct Instruction* if_body; InstrC if_body_length; struct Instruction* else_body; InstrC else_body_length; } Instruction_If;
 typedef struct { struct Instruction* body; InstrC body_length; } Instruction_Loop;
@@ -70,10 +70,10 @@ typedef struct { VarIdx ref; uint64_t index; VarIdx value; } Instruction_RefSetF
 
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedCall;
 typedef struct { Instruction_Function* function; VarIdx* argv; VarIdx returned; } Instruction_ResolvedAsyncCall;
-typedef struct { void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
+typedef struct { MString name; void* function; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedExternalCall;
 typedef struct { MString name; uint16_t trait_count; Instruction_Trait** traits; Instruction_Function*** trait_impl_functions; } Instruction_ResolvedImplements;
 typedef struct { VarIdx value; Instruction_ResolvedImplements* impl; } Instruction_ResolvedAddImplements;
-typedef struct { VarIdx value; uint32_t trait_id; uint16_t method_index; VarIdx* argv; VarIdx returned; } Instruction_ResolvedMethodCall;
+typedef struct { VarIdx value; MString trait_name; uint32_t trait_id; MString method_name; uint16_t method_index; VarIdx argc; VarIdx* argv; VarIdx returned; } Instruction_ResolvedMethodCall;
 
 typedef struct { InstrC dest; } Instruction_Jump;
 typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instruction_ConditionalJump;
@@ -81,7 +81,6 @@ typedef struct { VarIdx condition; InstrC if_dest; InstrC else_dest; } Instructi
 typedef enum {
     // part of binaries
     FUNCTION, CALL, ASYNC_CALL, EXTERNAL_CALL, CLOSURE_CALL, RETURN, RETURN_NOTHING, ASSERT, TRAIT, IMPLEMENTS, ADD_IMPLEMENTS, METHOD_CALL, 
-    RECORD, RECORD_INIT, RECORD_GET, RECORD_SET,
     IF, LOOP, BREAK, CONTINUE,
     COPY,
     PUT_NAT, PUT_INT, PUT_FLT, PUT_CLOSURE,

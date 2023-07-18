@@ -74,8 +74,11 @@ int main(int argc, char** argv) {
             memcmp(search_function_name, function->name.data, search_function_name_length) != 0) { continue; }
 
             if(function->argc != 0) { invalid_args(); }
-            IoliteAllocation* base_frame = gc_allocate(&gc, 0);
-            execute(&gc, &tp, instructions, instruction_count, base_frame, NULL, function->body_instruction_index);
+            IoliteAllocation* base_frame = gc_allocate(&gc, function->varc);
+            for(size_t var = 0; var < base_frame->size; var += 1) {
+                base_frame->values[var].type = UNIT;
+            }
+            execute(&gc, &tp, instructions, instruction_count, base_frame, NULL, function->body_instruction_index, &function->name);
 
             found = 1;
             break;

@@ -200,9 +200,9 @@ Vector read_instructions(char** p, char* end, size_t instr_count, MString* strin
                 d.trait_name = strings[trait_name];
                 StrIdx method_name = GRAB(p, StrIdx);
                 d.method_name = strings[method_name];
-                VarIdx argc = GRAB(p, VarIdx);
-                d.argv = malloc(sizeof(VarIdx) * argc);
-                for(VarIdx arg = 0; arg < argc; arg += 1) {
+                d.argc = GRAB(p, VarIdx);
+                d.argv = malloc(sizeof(VarIdx) * d.argc);
+                for(VarIdx arg = 0; arg < d.argc; arg += 1) {
                     d.argv[arg] = GRAB(p, VarIdx);
                 }
                 d.returned = GRAB(p, VarIdx);
