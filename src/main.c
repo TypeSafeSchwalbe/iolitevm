@@ -133,6 +133,80 @@ int main() {
     test.body_length = 5;
     */
 
+    /*
+        # strings
+
+        05 00 00 00                       # 5 strings
+        04 00                             # length 4
+           6D 61 69 6E                       # "main"
+        0B 00                             # length 11
+           70 72 69 6E 74 6C 6E 5F
+           66 6C 74                          # "println_flt"
+        03 00                             # length 3
+           61 64 64                          # "add"
+        07 00                             # length 7
+           61 64 64 61 62 6C 65              # "addable"
+        08 00                             # length 8
+           66 6C 74 24 69 6D 70 6C           # "flt$impl"
+        
+        # program
+
+        08                                # trait
+           03 00 00 00                       # trait name ([3]="addable")
+           01 00                             # method count
+              02 00 00 00                       # method name ([2]="add")
+        00                                # function
+           02 00 00 00                       # function name ([2]="add")
+           02 00                             # param count
+           01 00                             # variable count
+           00 00                             # condition count
+           02 00 00 00 00 00 00 00           # body length
+              1C                                # add
+                 00 00                             # a var
+                 01 00                             # b var
+                 02 00                             # dest var
+              05                                # return
+                 02 00                             # return val var
+        09                                # implements
+           04 00 00 00                       # implement name ([4]="flt$impl")
+           01 00                             # trait count
+              03 00 00 00                       # trait name ([3]="addable")
+              01 00                             # trait method count
+                 02 00 00 00                       # impl function name ([2]="add")
+        00                                # function
+           00 00 00 00                       # function name ([0]="main")
+           00 00                             # param count
+           03 00                             # variable count
+           00 00                             # condition count
+           06 00 00 00 00 00 00 00           # body length
+              13                                # put float
+                 1F 85 EB 51 B8 1E 09 40           # 3.14
+                 00 00                             # dest var
+              0A                                # add implements
+                 00 00                             # value var
+                 04 00 00 00                       # implements name ([4]="flt$impl")
+              13                                # put float
+                 1F 85 EB 51 B8 1E 09 40           # 3.14
+                 01 00                             # dest var
+              0B                                # method call
+                 00 00                             # value var
+                 03 00 00 00                       # trait name ([3]="addable")
+                 02 00 00 00                       # method name ([2]="add")
+                 02 00                             # param count
+                    00 00                             # param var
+                    01 00                             # param var
+                 02 00                             # return val dest var
+              03                                # extern call
+                 01 00 00 00                       # function name ([1]="println_flt")
+                 01 00                             # param count
+                    02 00                             # param var
+                 00 00                             # return val dest var
+              06                                # return nothing
+        01                                # call
+           00 00 00 00                       # function name ([0]="main")
+           00 00                             # param count
+           00 00                             # return val dest var
+    */
     Module test = create_module("test.iob");
 
     // flatten and combine all the modules into one long array of instructions, resolve all symbols

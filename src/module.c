@@ -172,7 +172,7 @@ Vector read_instructions(char** p, char* end, size_t instr_count, MString* strin
                     d.trait_impl_function_names[trait_index] = malloc(sizeof(MString) * trait_method_count);
                     for(MethodIdx method_index = 0; method_index < trait_method_count; method_index += 1) {
                         StrIdx method_name = GRAB(p, StrIdx);
-                        d.trait_impl_function_names[trait_index][method_index] = strings[method_index];
+                        d.trait_impl_function_names[trait_index][method_index] = strings[method_name];
                     }
                 }
                 i.data.implements_data = d;
