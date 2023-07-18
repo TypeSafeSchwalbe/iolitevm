@@ -4,26 +4,33 @@
 #include <stdlib.h>
 #include <string.h>
 #include "module.h"
+#include "cli.h"
 
 
 void read_file(char* filename, char** data, size_t* size) {
     FILE* f = fopen(filename, "rb");
     if(f == NULL) {
-        printf("Unable to open file '%s'. Does the file exist?\n", filename);
-        exit(1);
+        #define OPEN_ERROR_FMT "Unable to open the file '%s'.", filename
+        char error_reason[snprintf(NULL, 0, OPEN_ERROR_FMT)]; 
+        sprintf(error_reason, OPEN_ERROR_FMT);
+        error(error_reason);
     }
     int64_t length;
     if(fseek(f, 0, SEEK_END) || (length = ftell(f)) == -1) {
-        printf("Unable to calculate the size of '%s'.\n", filename);
-        exit(1);
+        #define GET_SIZE_ERROR_FMT "Unable to get the size of the file '%s'.", filename
+        char error_reason[snprintf(NULL, 0, GET_SIZE_ERROR_FMT)]; 
+        sprintf(error_reason, GET_SIZE_ERROR_FMT);
+        error(error_reason);
     }
     *size = length;
     rewind(f);
     *data = malloc(*size);
     if(*data == NULL || fread(*data, *size, 1, f) != 1) {
         free(*data);
-        printf("Unable to read the contents of '%s'.\n", filename);
-        exit(1);
+        #define READ_ERROR_FMT "Unable to read the contents of the file '%s'.", filename
+        char error_reason[snprintf(NULL, 0, READ_ERROR_FMT)]; 
+        sprintf(error_reason, READ_ERROR_FMT);
+        error(error_reason);
     }
     fclose(f);
 }

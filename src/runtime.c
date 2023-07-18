@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include "runtime.h"
 #include "vector.h"
+#include "cli.h"
 
 
 InstrC calculate_flat_length(Instruction* instructions, InstrC instruction_count) {
@@ -179,16 +180,22 @@ char* as_null_terminated(char* src, size_t length) {
 }
 
 
-void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instruction_count) {
+#define FIND_FUNCTION_ERROR_FMT(f) "Unable to find a function called '%s'.", f
+#define FIND_EXT_FUNCTION_ERROR_FMT(f) "Unable to find an external function called '%s'.", f
+#define FIND_TRAIT_ERROR_FMT(t) "Unable to find the a trait called '%s'.", t
+#define FIND_TRAIT_METHOD_ERROR_FMT(m, t) "Unable to find a method called '%s' in the trait '%s'.", m, t
+#define FIND_IMPLEMENTS_ERROR_FMT(i) "Unable to find implementations labelled as '%s'.", i
+
+void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instruction_count, Vector* functions) {
     // discover functions and traits
-    Vector functions = create_vector(sizeof(Instruction_Function*));
+    *functions = create_vector(sizeof(Instruction_Function*));
     Vector traits = create_vector(sizeof(Instruction_Trait*));
     for(InstrC instruction_index = 0; instruction_index < instruction_count; instruction_index += 1) {
         Instruction* instruction = &instructions[instruction_index];
         switch(instruction->type) {
             case FUNCTION: {
                 Instruction_Function* function_data = &instruction->data.function_data;
-                vector_push(&functions, &function_data);
+                vector_push(functions, &function_data);
             } break;
             case TRAIT: {
                 Instruction_Trait* trait_data = &instruction->data.trait_data;
@@ -215,8 +222,8 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 }
                 // try to find the function in all loaded functions
                 uint8_t found = 0;
-                for(size_t function_index = 0; function_index < functions.size; function_index += 1) {
-                    Instruction_Function** function = vector_get(&functions, function_index);
+                for(size_t function_index = 0; function_index < functions->size; function_index += 1) {
+                    Instruction_Function** function = vector_get(functions, function_index);
                     if((*function)->name.length == name->length
                     && memcmp((*function)->name.data, name->data, name->length) == 0) {
                         // replace with resolved
@@ -248,9 +255,10 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 if(found) { continue; }
                 // still not found? -> error
                 char* name_null_terminated = as_null_terminated(name->data, name->length);
-                printf("No function with the name '%s' could be found in any loaded module.\n", name_null_terminated);
+                char error_reason[snprintf(NULL, 0, FIND_FUNCTION_ERROR_FMT(name_null_terminated))]; 
+                sprintf(error_reason, FIND_FUNCTION_ERROR_FMT(name_null_terminated));
                 free(name_null_terminated);
-                exit(1);
+                error(error_reason);
             } break;
             case EXTERNAL_CALL: {
                 Instruction_ExternalCall* data = &instruction->data.external_call_data;
@@ -272,9 +280,9 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                     break;
                 }
                 // still not found? -> error
-                printf("No function with the name '%s' could be found in any loaded shared library.\n", name_null_terminated);
+                char error_reason[snprintf(NULL, 0, FIND_EXT_FUNCTION_ERROR_FMT(name_null_terminated))]; 
+                sprintf(error_reason, FIND_EXT_FUNCTION_ERROR_FMT(name_null_terminated));
                 free(name_null_terminated);
-                exit(1);
             } break;
 
             case IMPLEMENTS: {
@@ -299,8 +307,8 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                             MString* contained_impl_function_name = data->trait_impl_function_names[contained_function_index];
                             uint8_t function_found = 0;
                             // try to find the implementation function
-                            for(size_t loaded_function_index = 0; loaded_function_index < functions.size; loaded_function_index += 1) {
-                                Instruction_Function* loaded_function = *((Instruction_Function**) vector_get(&functions, loaded_function_index));
+                            for(size_t loaded_function_index = 0; loaded_function_index < functions->size; loaded_function_index += 1) {
+                                Instruction_Function* loaded_function = *((Instruction_Function**) vector_get(functions, loaded_function_index));
                                 if(contained_impl_function_name->length != loaded_function->name.length
                                 || memcmp(loaded_function->name.data, contained_impl_function_name->data, contained_impl_function_name->length) != 0) { continue; }
                                 // found!
@@ -312,9 +320,10 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                             if(function_found) { continue; }
                             // not found? -> error
                             char* contained_impl_function_name_null_terminated = as_null_terminated(contained_impl_function_name->data, contained_impl_function_name->length);
-                            printf("No function with the name '%s' could be found in any loaded module.\n", contained_impl_function_name_null_terminated);
+                            char error_reason[snprintf(NULL, 0, FIND_FUNCTION_ERROR_FMT(contained_impl_function_name_null_terminated))]; 
+                            sprintf(error_reason, FIND_FUNCTION_ERROR_FMT(contained_impl_function_name_null_terminated));
                             free(contained_impl_function_name_null_terminated);
-                            exit(1);
+                            error(error_reason);
                         }
                         trait_found = 1;
                         break; 
@@ -322,9 +331,10 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                     // not found? -> error
                     if(!trait_found) {
                         char* contained_trait_name_null_terminated = as_null_terminated(contained_trait_name->data, contained_trait_name->length);
-                        printf("No trait with the name '%s' could be found in any loaded module.\n", contained_trait_name_null_terminated);
+                        char error_reason[snprintf(NULL, 0, FIND_TRAIT_ERROR_FMT(contained_trait_name_null_terminated))]; 
+                        sprintf(error_reason, FIND_TRAIT_ERROR_FMT(contained_trait_name_null_terminated));
                         free(contained_trait_name_null_terminated);
-                        exit(1);
+                        error(error_reason);
                     }
                     // replace with resolved
                     *instruction = (Instruction) {
@@ -374,10 +384,11 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                     if(!method_found) {
                         char* trait_name_null_terminated = as_null_terminated(data->trait_name.data, data->trait_name.length);
                         char* method_name_null_terminated = as_null_terminated(data->method_name.data, data->method_name.length);
-                        printf("The trait '%s' has no method '%s'.\n", trait_name_null_terminated, method_name_null_terminated);
+                        char error_reason[snprintf(NULL, 0, FIND_TRAIT_METHOD_ERROR_FMT(method_name_null_terminated, trait_name_null_terminated))]; 
+                        sprintf(error_reason, FIND_TRAIT_METHOD_ERROR_FMT(method_name_null_terminated, trait_name_null_terminated));
                         free(trait_name_null_terminated);
                         free(method_name_null_terminated);
-                        exit(1);
+                        error(error_reason);
                     }
                     trait_found = 1;
                     break; 
@@ -385,9 +396,10 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 if(trait_found) { continue; }
                 // not found? -> error
                 char* trait_name_null_terminated = as_null_terminated(data->trait_name.data, data->trait_name.length);
-                printf("No trait with the name '%s' could be found in any loaded module.\n", trait_name_null_terminated);
+                char error_reason[snprintf(NULL, 0, FIND_TRAIT_ERROR_FMT(trait_name_null_terminated))]; 
+                sprintf(error_reason, FIND_TRAIT_ERROR_FMT(trait_name_null_terminated));
                 free(trait_name_null_terminated);
-                exit(1);
+                error(error_reason);
             } break;
 
             default: {}
@@ -419,17 +431,17 @@ void resolve_symbols(DLibLoader* l, Instruction* instructions, InstrC instructio
                 }
                 if(found) { continue; }
                 // not found? -> error
-                char* implements_name_null_terminated = as_null_terminated(data->impl_name.data, data->impl_name.length);
-                printf("No implementations with the name '%s' could be found in any loaded module.\n", implements_name_null_terminated);
-                free(implements_name_null_terminated);
-                exit(1);
+                char* impl_name_null_terminated = as_null_terminated(data->impl_name.data, data->impl_name.length);
+                char error_reason[snprintf(NULL, 0, FIND_IMPLEMENTS_ERROR_FMT(impl_name_null_terminated))]; 
+                sprintf(error_reason, FIND_IMPLEMENTS_ERROR_FMT(impl_name_null_terminated));
+                free(impl_name_null_terminated);
+                error(error_reason);
             } break;
 
             default: {}
         }
     }
     // clean up
-    vector_cleanup(&functions);
     vector_cleanup(&traits);
     vector_cleanup(&implements);
 }

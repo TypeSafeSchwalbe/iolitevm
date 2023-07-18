@@ -6,6 +6,7 @@
 #endif
 #include <stdio.h>
 #include "dlibs.h"
+#include "cli.h"
 
 
 DLibLoader create_lib_loader() {
@@ -22,8 +23,10 @@ void dlibs_load(DLibLoader* l, char* file) {
         lib = dlopen(file, RTLD_LAZY);
     #endif
     if(lib == NULL) {
-        printf("Unable to load dynamic library '%s'!\n", file);
-        exit(1);
+        #define ERROR_FMT "Unable to load the dynamic library '%s'.", file
+        char error_reason[snprintf(NULL, 0, ERROR_FMT)]; 
+        sprintf(error_reason, ERROR_FMT);
+        error(error_reason);
     }
     vector_push(&l->loaded, &lib);
 }
